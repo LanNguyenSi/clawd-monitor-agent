@@ -1,5 +1,4 @@
 node_modules/
 dist/
 *.tsbuildinfo
-*.json.bak
 .clawd-agent-id
