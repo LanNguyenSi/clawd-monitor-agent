@@ -40,13 +40,17 @@ export async function collectSessions(
 
         for (const line of lines) {
           try {
-            const msg = JSON.parse(line) as Record<string, unknown>
-            if (typeof msg.role === 'string' && msg.role !== 'toolResult') messageCount++
-            const oc = msg.__openclaw as Record<string, unknown> | undefined
-            if (oc?.sessionKey && typeof oc.sessionKey === 'string') sessionKey = oc.sessionKey
-            if (typeof msg.model === 'string') model = msg.model
-            if (typeof msg.timestamp === 'number') {
-              lastMessageAt = new Date(msg.timestamp).toISOString()
+            const entry = JSON.parse(line) as Record<string, unknown>
+            // OpenClaw JSONL format: { type, id, timestamp, message?: { role, content } }
+            if (entry.type === 'session') {
+              sessionKey = typeof entry.id === 'string' ? `agent:main:${entry.id}` : undefined
+            } else if (entry.type === 'message') {
+              const msg = entry.message as Record<string, unknown> | undefined
+              if (msg?.role === 'user' || msg?.role === 'assistant') messageCount++
+              if (typeof entry.timestamp === 'string') lastMessageAt = entry.timestamp
+            } else if (entry.type === 'model_change') {
+              const modelId = (entry as Record<string, unknown>).modelId
+              if (typeof modelId === 'string') model = modelId.split('/').pop()
             }
           } catch { /* skip malformed lines */ }
         }
