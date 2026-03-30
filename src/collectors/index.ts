@@ -10,7 +10,7 @@ const VERSION = '1.0.0'
 export async function collectSnapshot(config: AgentConfig): Promise<AgentSnapshot> {
   const [sessions, cronJobs] = await Promise.all([
     config.collect.sessions
-      ? collectSessions(config.gateway.url, config.gateway.token)
+      ? collectSessions(config.gateway.url, config.gateway.token, config.clawd_dir)
       : Promise.resolve([]),
     config.collect.cron
       ? collectCronJobs(config.gateway.url, config.gateway.token)
