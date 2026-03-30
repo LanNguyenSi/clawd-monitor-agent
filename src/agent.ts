@@ -64,6 +64,8 @@ export class Agent {
         agentId: this.config.agentId,
         name: this.config.name,
         version: VERSION,
+        gatewayUrl: this.config.gateway.url,
+        gatewayToken: this.config.gateway.token,
       }
       ws.send(JSON.stringify(authMsg))
     })
