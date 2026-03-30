@@ -1,7 +1,9 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import type { Session } from '../types.js'
+import type { Session, SessionMessage } from '../types.js'
+
+const MAX_RECENT_MESSAGES = 20
 
 /**
  * Collect sessions by reading local JSONL files.
@@ -37,6 +39,7 @@ export async function collectSessions(
         let lastMessageAt: string | undefined
         let messageCount = 0
         let sessionKey: string | undefined
+        const allMessages: SessionMessage[] = []
 
         for (const line of lines) {
           try {
@@ -46,7 +49,28 @@ export async function collectSessions(
               sessionKey = typeof entry.id === 'string' ? `agent:main:${entry.id}` : undefined
             } else if (entry.type === 'message') {
               const msg = entry.message as Record<string, unknown> | undefined
-              if (msg?.role === 'user' || msg?.role === 'assistant') messageCount++
+              const role = typeof msg?.role === 'string' ? msg.role : undefined
+              if (role === 'user' || role === 'assistant') {
+                messageCount++
+                const rawContent = msg?.content
+                let content = ''
+                if (typeof rawContent === 'string') {
+                  content = rawContent
+                } else if (Array.isArray(rawContent)) {
+                  content = rawContent
+                    .filter((b: unknown) => (b as Record<string, unknown>)?.type === 'text')
+                    .map((b: unknown) => (b as Record<string, unknown>)?.text ?? '')
+                    .join('\n')
+                    .trim()
+                }
+                if (content) {
+                  allMessages.push({
+                    role,
+                    content: content.slice(0, 500), // truncate per message
+                    timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : undefined,
+                  })
+                }
+              }
               if (typeof entry.timestamp === 'string') lastMessageAt = entry.timestamp
             } else if (entry.type === 'model_change') {
               const modelId = (entry as Record<string, unknown>).modelId
@@ -63,6 +87,7 @@ export async function collectSessions(
           model,
           lastMessageAt: lastMessageAt ?? stats.mtime.toISOString(),
           messageCount,
+          recentMessages: allMessages.slice(-MAX_RECENT_MESSAGES),
         })
       } catch { /* skip unreadable files */ }
     }

@@ -19,12 +19,19 @@ export interface AgentConfig {
   logLevel: 'debug' | 'info' | 'warn' | 'error'
 }
 
+export interface SessionMessage {
+  role: string
+  content: string
+  timestamp?: string
+}
+
 export interface Session {
-  sessionKey: string  // renamed from key for compatibility with clawd-monitor GatewaySession
+  sessionKey: string
   kind: string
   model?: string
   lastMessageAt?: string
   messageCount?: number
+  recentMessages?: SessionMessage[]  // last N messages embedded in snapshot
 }
 
 export interface CronJob {
