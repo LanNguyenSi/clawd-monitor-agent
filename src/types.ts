@@ -20,7 +20,7 @@ export interface AgentConfig {
 }
 
 export interface Session {
-  key: string
+  sessionKey: string  // renamed from key for compatibility with clawd-monitor GatewaySession
   kind: string
   model?: string
   lastMessageAt?: string

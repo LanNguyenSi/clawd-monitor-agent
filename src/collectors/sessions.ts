@@ -58,7 +58,7 @@ export async function collectSessions(
         if (messageCount === 0) continue // skip empty sessions
 
         sessions.push({
-          key: sessionKey ?? `agent:main:${sessionId}`,
+          sessionKey: sessionKey ?? `agent:main:${sessionId}`,
           kind: 'main',
           model,
           lastMessageAt: lastMessageAt ?? stats.mtime.toISOString(),
