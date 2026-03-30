@@ -2,27 +2,18 @@
 
 Push-based monitoring agent for [clawd-monitor](https://github.com/LanNguyenSi/clawd-monitor).
 
-Runs on each OpenClaw host, connects outbound to the central clawd-monitor dashboard, and pushes live data — no inbound ports required.
+Runs on each OpenClaw host, connects outbound to a central clawd-monitor dashboard, and pushes live snapshots every 5 seconds — no inbound ports required on the agent host.
 
-**Status:** 🚧 In development
+## What it collects
 
-## Architecture
-
-```
-OpenClaw Host (Ice/Lava VPS)          Stone VPS
-┌─────────────────────────────┐       ┌──────────────────────────┐
-│  clawd-monitor-agent        │       │  clawd-monitor           │
-│  ┌─────────────────────┐    │       │  ┌────────────────────┐  │
-│  │ Collectors          │    │       │  │ Agent Registry     │  │
-│  │ - sessions          │    │       │  │ - connected agents │  │
-│  │ - cron jobs         │────┼──────▶│  │ - latest snapshots │  │
-│  │ - metrics (CPU/RAM) │    │ WSS   │  │ - event stream     │  │
-│  │ - memory files      │    │       │  └────────────────────┘  │
-│  │ - docker containers │    │       │          │               │
-│  └─────────────────────┘    │       │  Dashboard (widgets)     │
-│                             │       │  show multi-agent data   │
-└─────────────────────────────┘       └──────────────────────────┘
-```
+| Data | Description |
+|------|-------------|
+| Sessions | Active OpenClaw sessions (read from local JSONL files) |
+| Cron Jobs | Scheduled jobs with next/last run times |
+| CPU + RAM | System metrics via `/proc` |
+| Memory files | MEMORY.md, CURRENT.md, today's daily log |
+| Docker containers | Running containers, state, uptime, restarts |
+| Session messages | Last 5 messages per session (embedded in snapshot) |
 
 ## Install
 
@@ -33,28 +24,37 @@ npm install -g clawd-monitor-agent
 ## Usage
 
 ```bash
-# Start agent
 clawd-monitor-agent \
-  --server https://clawd-monitor.opentriologue.ai \
-  --token <agent-token> \
-  --name "Ice (local)" \
-  --gateway http://localhost:9500 \
-  --gateway-token <openclaw-token>
-
-# Or via config file
-clawd-monitor-agent --config ~/.clawd-monitor-agent.json
+  --server https://your-clawd-monitor-domain \
+  --token <agent-token-from-settings> \
+  --name "My OpenClaw Host" \
+  --gateway http://localhost:18789
 ```
+
+Get the token from the clawd-monitor Settings page (Settings → Agent Tokens → Generate).
+
+## Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--server` | — | clawd-monitor URL (required) |
+| `--token` | — | Agent token from Settings (required) |
+| `--name` | hostname | Display name in dashboard |
+| `--gateway` | `http://localhost:18789` | OpenClaw gateway URL |
+| `--gateway-token` | — | OpenClaw gateway auth token |
+| `--clawd-dir` | `~/.openclaw/workspace` | Path to OpenClaw workspace |
+| `--interval` | `5000` | Snapshot push interval (ms) |
+| `--config` | — | Path to JSON config file |
 
 ## Config file
 
 ```json
 {
-  "server": "https://clawd-monitor.opentriologue.ai",
+  "server": "https://your-clawd-monitor-domain",
   "token": "<agent-token>",
-  "name": "Ice (local)",
+  "name": "My OpenClaw Host",
   "gateway": {
-    "url": "http://localhost:9500",
-    "token": "<openclaw-gateway-token>"
+    "url": "http://localhost:18789"
   },
   "collect": {
     "sessions": true,
@@ -75,7 +75,11 @@ Description=clawd-monitor agent
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/clawd-monitor-agent --config /etc/clawd-monitor-agent.json
+ExecStart=/usr/bin/clawd-monitor-agent \
+  --server https://your-clawd-monitor-domain \
+  --token <agent-token> \
+  --name "My OpenClaw Host" \
+  --gateway http://localhost:18789
 Restart=always
 RestartSec=10
 
@@ -85,4 +89,4 @@ WantedBy=multi-user.target
 
 ---
 
-*Part of the clawd-monitor ecosystem*
+*Part of the [clawd-monitor](https://github.com/LanNguyenSi/clawd-monitor) ecosystem*
