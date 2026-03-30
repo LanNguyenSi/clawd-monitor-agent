@@ -72,7 +72,7 @@ export interface AgentSnapshot {
 
 // WebSocket message types
 export type WsMessage =
-  | { type: 'auth'; token: string; agentId: string; name: string; version: string }
+  | { type: 'auth'; token: string; agentId: string; name: string; version: string; gatewayUrl?: string; gatewayToken?: string }
   | { type: 'auth_ok' }
   | { type: 'auth_error'; message: string }
   | { type: 'snapshot'; data: AgentSnapshot }
