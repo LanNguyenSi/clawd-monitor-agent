@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { Session, SessionMessage } from '../types.js'
 
-const MAX_RECENT_MESSAGES = 20
+const MAX_RECENT_MESSAGES = 5
 
 /**
  * Collect sessions by reading local JSONL files.
@@ -16,7 +16,7 @@ export async function collectSessions(
   clawdDir?: string
 ): Promise<Session[]> {
   try {
-    const base = clawdDir ? join(clawdDir, '..') : join(homedir(), '.openclaw')
+    const base = join(homedir(), '.openclaw')
     const sessionsDir = join(base, 'agents', 'main', 'sessions')
 
     const files = await readdir(sessionsDir)
@@ -66,7 +66,7 @@ export async function collectSessions(
                 if (content) {
                   allMessages.push({
                     role,
-                    content: content.slice(0, 500), // truncate per message
+                    content: content.slice(0, 200), // truncate per message
                     timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : undefined,
                   })
                 }
