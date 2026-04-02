@@ -56,6 +56,7 @@ export interface MemoryFiles {
   memory?: string
   current?: string
   today?: string
+  yesterday?: string
 }
 
 export interface DockerContainer {
