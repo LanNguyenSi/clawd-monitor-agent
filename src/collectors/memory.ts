@@ -18,18 +18,22 @@ function safeRead(filePath: string): string | undefined {
   }
 }
 
-function todayPath(clawdDir: string): string {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
+function datePath(clawdDir: string, date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
   return join(clawdDir, 'memory', `${y}-${m}-${day}.md`)
 }
 
 export function collectMemory(clawdDir: string): MemoryFiles {
+  const now = new Date()
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+
   return {
-    memory:  safeRead(join(clawdDir, 'MEMORY.md')),
-    current: safeRead(join(clawdDir, 'CURRENT.md')),
-    today:   safeRead(todayPath(clawdDir)),
+    memory:    safeRead(join(clawdDir, 'MEMORY.md')),
+    current:   safeRead(join(clawdDir, 'CURRENT.md')),
+    today:     safeRead(datePath(clawdDir, now)),
+    yesterday: safeRead(datePath(clawdDir, yesterday)),
   }
 }
