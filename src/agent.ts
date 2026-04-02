@@ -14,6 +14,8 @@ export class Agent {
   private reconnectDelay = 1000
   private pushTimer: NodeJS.Timeout | null = null
   private pingTimer: NodeJS.Timeout | null = null
+  private reconnectTimer: NodeJS.Timeout | null = null
+  private connecting = false
   private stopped = false
 
   constructor(config: AgentConfig) {
@@ -43,7 +45,14 @@ export class Agent {
   }
 
   private connect() {
-    if (this.stopped) return
+    if (this.stopped || this.connecting) return
+    this.connecting = true
+
+    // Close any existing connection first
+    if (this.ws) {
+      try { this.ws.removeAllListeners(); this.ws.close() } catch {}
+      this.ws = null
+    }
 
     const wsUrl = this.config.server.replace(/^http/, 'ws') + '/api/agents/ws'
     this.log('info', `Connecting to ${wsUrl}…`)
@@ -55,8 +64,8 @@ export class Agent {
     this.authenticated = false
 
     ws.on('open', () => {
+      this.connecting = false
       this.log('info', 'Connected — authenticating…')
-      this.reconnectDelay = 1000 // reset backoff on successful connect
 
       const authMsg: WsMessage = {
         type: 'auth',
@@ -81,6 +90,7 @@ export class Agent {
       if (msg.type === 'auth_ok') {
         this.log('info', `Authenticated as "${this.config.name}" (${this.config.agentId})`)
         this.authenticated = true
+        this.reconnectDelay = 1000 // reset backoff on successful auth
         this.startPushLoop()
         this.startPingLoop()
       } else if (msg.type === 'auth_error') {
@@ -95,21 +105,32 @@ export class Agent {
     })
 
     ws.on('close', (code) => {
+      this.connecting = false
+      // Only handle close for the current WebSocket
+      if (ws !== this.ws) return
       this.log('info', `Disconnected (code ${code})`)
+      this.ws = null
       this.clearTimers()
       this.authenticated = false
       if (!this.stopped) this.scheduleReconnect()
     })
 
     ws.on('error', (err) => {
+      this.connecting = false
+      if (ws !== this.ws) return
       this.log('warn', `WebSocket error: ${err.message}`)
     })
   }
 
   private scheduleReconnect() {
+    // Cancel any pending reconnect
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
     const delay = this.reconnectDelay
     this.log('info', `Reconnecting in ${delay}ms…`)
-    setTimeout(() => this.connect(), delay)
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      this.connect()
+    }, delay)
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 60_000)
   }
 
