@@ -1,21 +1,42 @@
+import { execSync } from 'node:child_process'
 import type { CronJob } from '../types.js'
 
+interface CliCronJob {
+  id: string
+  name?: string
+  schedule: object
+  enabled: boolean
+  state?: {
+    lastRunAtMs?: number
+    nextRunAtMs?: number
+  }
+}
+
+interface CronListResponse {
+  jobs?: CliCronJob[]
+}
+
 export async function collectCronJobs(
-  gatewayUrl: string,
-  gatewayToken?: string
+  _gatewayUrl: string,
+  _gatewayToken?: string
 ): Promise<CronJob[]> {
   try {
-    const headers: Record<string, string> = {}
-    if (gatewayToken) headers['Authorization'] = `Bearer ${gatewayToken}`
-
-    const res = await fetch(`${gatewayUrl}/cron/jobs`, {
-      headers,
-      signal: AbortSignal.timeout(5000),
+    const stdout = execSync('openclaw cron list --all --json', {
+      timeout: 10_000,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
     })
-    if (!res.ok) return []
 
-    const data = await res.json() as { jobs?: CronJob[] }
-    return data.jobs ?? []
+    const data: CronListResponse = JSON.parse(stdout)
+    if (!data.jobs || !Array.isArray(data.jobs)) return []
+
+    return data.jobs.map((job) => ({
+      id: job.id,
+      name: job.name,
+      schedule: job.schedule,
+      enabled: job.enabled,
+      state: job.state,
+    }))
   } catch {
     return []
   }

@@ -39,8 +39,10 @@ export interface CronJob {
   name?: string
   schedule: object
   enabled: boolean
-  lastRunAt?: string
-  nextRunAt?: string
+  state?: {
+    lastRunAtMs?: number
+    nextRunAtMs?: number
+  }
 }
 
 export interface SystemMetrics {
