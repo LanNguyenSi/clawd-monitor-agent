@@ -104,6 +104,10 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for the per-release notes.
+
 ---
 
 *Part of the [clawd-monitor](https://github.com/LanNguyenSi/clawd-monitor) ecosystem*

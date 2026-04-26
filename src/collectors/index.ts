@@ -4,8 +4,7 @@ import { collectMetrics } from './metrics.js'
 import { collectMemory } from './memory.js'
 import { collectDocker } from './docker.js'
 import type { AgentConfig, AgentSnapshot } from '../types.js'
-
-const VERSION = '1.0.0'
+import { VERSION } from '../version.js'
 
 export async function collectSnapshot(config: AgentConfig): Promise<AgentSnapshot> {
   const [sessions, cronJobs] = await Promise.all([

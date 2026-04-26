@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { loadConfig } from './config.js'
 import { Agent } from './agent.js'
-
-const VERSION = '1.0.0'
+import { VERSION } from './version.js'
 
 function printHelp() {
   console.log(`
