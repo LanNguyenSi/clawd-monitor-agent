@@ -1,17 +1,37 @@
 {
   "name": "clawd-monitor-agent",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Lightweight agent that pushes OpenClaw instance data to clawd-monitor",
   "bin": {
     "clawd-monitor-agent": "./dist/cli.js"
   },
   "main": "./dist/agent.js",
+  "files": [
+    "dist",
+    "install.sh",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LanNguyenSi/clawd-monitor-agent.git"
+  },
+  "homepage": "https://github.com/LanNguyenSi/clawd-monitor-agent#readme",
+  "bugs": "https://github.com/LanNguyenSi/clawd-monitor-agent/issues",
+  "keywords": [
+    "openclaw",
+    "monitoring",
+    "agent",
+    "clawd-monitor"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "ts-node --esm src/cli.ts",
     "start": "node dist/cli.js",
     "test": "vitest run",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "ws": "^8.18.0"
