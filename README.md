@@ -17,6 +17,23 @@ Runs on each OpenClaw host, connects outbound to a central clawd-monitor dashboa
 
 ## Install
 
+### One-line installer (recommended)
+
+On the host you want to monitor (Debian/Ubuntu, root):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LanNguyenSi/clawd-monitor-agent/master/install.sh \
+  | sudo bash -s -- \
+      --server wss://your-clawd-monitor-domain \
+      --token <agent-token-from-settings>
+```
+
+Installs Node 18+ (via NodeSource if needed), the `clawd-monitor-agent` npm package, a dedicated `clawd-agent` system user, a config at `/etc/clawd-monitor-agent/config.json` (mode 0640), and a hardened systemd unit. Re-running with the same args is an idempotent restart; re-running with a different `--token` rotates the token. The token is never echoed to stdout and is not embedded in the unit file.
+
+Full flag list: `bash install.sh --help`.
+
+### Manual install
+
 ```bash
 npm install -g clawd-monitor-agent
 ```
