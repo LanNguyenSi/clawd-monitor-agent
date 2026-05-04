@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a defect in clawd-monitor-agent
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Expected vs. actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimal commands or config that trigger the bug.
+      render: bash
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: clawd-monitor-agent version
+      placeholder: "0.x.y"
+  - type: input
+    id: dashboard
+    attributes:
+      label: Target dashboard URL (if relevant)
+      placeholder: "https://..."
+  - type: input
+    id: env
+    attributes:
+      label: Host environment
+      placeholder: "OpenClaw host OS, Node version"
