@@ -1,8 +1,7 @@
 import WebSocket from 'ws'
 import { collectSnapshot } from './collectors/index.js'
+import { VERSION } from './version.js'
 import type { AgentConfig, WsMessage } from './types.js'
-
-const VERSION = '1.0.0'
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 const LOG_LEVELS: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 }

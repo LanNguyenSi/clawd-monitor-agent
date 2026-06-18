@@ -11,8 +11,8 @@ Runs on each OpenClaw host, connects outbound to a central clawd-monitor dashboa
 | Sessions | Active OpenClaw sessions (read from local JSONL files) |
 | Cron Jobs | Scheduled jobs with next/last run times |
 | CPU + RAM | System metrics via `/proc` |
-| Memory files | MEMORY.md, CURRENT.md, today's daily log |
-| Docker containers | Running containers, state, uptime, restarts |
+| Memory files | MEMORY.md, CURRENT.md, today's + yesterday's daily log |
+| Docker containers | All containers (running/stopped), state, uptime, restarts |
 | Session messages | Last 5 messages per session (embedded in snapshot) |
 
 ## Install
@@ -59,9 +59,16 @@ Get the token from the clawd-monitor Settings page (Settings → Agent Tokens �
 | `--name` | hostname | Display name in dashboard |
 | `--gateway` | `http://localhost:18789` | OpenClaw gateway URL |
 | `--gateway-token` | — | OpenClaw gateway auth token |
-| `--clawd-dir` | `~/.openclaw/workspace` | Path to OpenClaw workspace |
-| `--interval` | `5000` | Snapshot push interval (ms) |
+| `--clawd-dir` | `~/.openclaw/workspace` | Path to OpenClaw workspace (memory files only — see note) |
+| `--interval` | `5000` | Snapshot push interval (ms, minimum 1000) |
 | `--config` | — | Path to JSON config file |
+| `--no-memory` | off | Disable memory-file collection (collected by default) |
+| `--no-docker` | off | Disable Docker collection (collected by default) |
+| `--debug` | off | Enable debug logging |
+| `--version` | — | Print version and exit |
+| `--help`, `-h` | — | Show usage and exit |
+
+`--clawd-dir` only governs where memory files (`MEMORY.md`, `CURRENT.md`, daily logs) are read from. Session discovery ignores it: sessions are always read from `~/.openclaw/agents/main/sessions/*.jsonl`.
 
 ## Config file
 
@@ -103,6 +110,23 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 ```
+
+## Protocol
+
+The agent opens a single outbound WebSocket to `<server>/api/agents/ws`
+(the `--server` URL with `http`/`https` rewritten to `ws`/`wss`). It is a
+small JSON message protocol; it is pre-1.0 and may change between minor
+versions (see the CHANGELOG note).
+
+- On connect the agent sends an `auth` message (token, agentId, name,
+  version, and the gateway URL/token). The server replies `auth_ok` or
+  `auth_error`. On `auth_error` the agent stops and does not reconnect.
+- After `auth_ok` the agent pushes a `snapshot` message on every interval
+  (default 5s); the server may reply `ack`.
+- The agent sends a `ping` every 30s and expects a `pong`.
+- If the connection drops, the agent reconnects with exponential backoff
+  starting at 1s, doubling up to a 60s cap, reset on the next successful
+  auth.
 
 ## Changelog
 
