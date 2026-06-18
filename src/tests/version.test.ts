@@ -18,14 +18,16 @@ describe('VERSION', () => {
 
   // DRY-invariant guard: lock in that no source file outside version.ts
   // ever re-introduces a hardcoded version string. The earlier shape of
-  // this codebase had `const VERSION = '1.0.0'` hardcoded in TWO places
-  // (src/cli.ts and src/collectors/index.ts) that drifted unnoticed
-  // through 15+ commits. This test catches a regression by name —
-  // `VERSION =` paired with a quoted semver literal — wherever it
-  // appears under src/ except the one place it's allowed.
+  // this codebase had `const VERSION = '1.0.0'` hardcoded in several
+  // places (src/cli.ts, src/collectors/index.ts and src/agent.ts) that
+  // drifted unnoticed through 15+ commits. This test catches a
+  // regression by name — `VERSION =` paired with a quoted semver
+  // literal — wherever it appears under src/ except the one place it's
+  // allowed.
   it.each([
     ['cli.ts',                 join(SRC_DIR, 'cli.ts')],
     ['collectors/index.ts',    join(SRC_DIR, 'collectors', 'index.ts')],
+    ['agent.ts',               join(SRC_DIR, 'agent.ts')],
   ])('does not re-introduce a hardcoded VERSION literal in %s', (_label, path) => {
     const source = readFileSync(path, 'utf-8')
     // Match `VERSION = '1.2.3'` or `VERSION = "1.2.3"` only — does
