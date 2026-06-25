@@ -128,6 +128,41 @@ versions (see the CHANGELOG note).
   starting at 1s, doubling up to a 60s cap, reset on the next successful
   auth.
 
+## WebSocket lifecycle
+
+The agent maintains a single outbound WebSocket connection with an auth handshake, a periodic snapshot push loop, and a separate heartbeat.
+
+```mermaid
+sequenceDiagram
+    participant A as "Agent<br/>agent.ts"
+    participant S as "Server<br/>/api/agents/ws"
+    participant C as "Collectors<br/>src/collectors/index.ts"
+
+    A->>S: WS connect (ws/wss)
+    A->>S: auth {token, agentId, name, version, gatewayUrl}
+
+    alt auth_ok
+        S-->>A: auth_ok
+        Note over A: reconnectDelay reset to 1 s
+        loop every intervalMs (default 5 s)
+            A->>C: collectSnapshot(config)
+            Note over C: Promise.all: collectSessions · collectCronJobs<br/>sync: collectMetrics · collectMemory · collectDocker
+            C-->>A: AgentSnapshot
+            A->>S: snapshot {data: AgentSnapshot}
+            S-->>A: ack
+        end
+        loop every 30 s
+            A->>S: ping
+            S-->>A: pong
+        end
+    else auth_error
+        S-->>A: auth_error
+        Note over A: stopped = true — no reconnect
+    end
+
+    Note over A,S: on disconnect: scheduleReconnect()<br/>1 s base · ×2 · 60 s cap
+```
+
 ## Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for the per-release notes.
