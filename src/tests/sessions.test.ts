@@ -184,6 +184,25 @@ describe('collectSessions', () => {
   })
 
   // -------------------------------------------------------------------------
+  // model_change entry sets session.model (split-and-pop of modelId)
+  // -------------------------------------------------------------------------
+  it('extracts model from model_change entry (split on / and pop)', async () => {
+    vi.mocked(readdir).mockResolvedValue(['s.jsonl'] as unknown as Awaited<ReturnType<typeof readdir>>)
+    vi.mocked(readFile).mockResolvedValue(
+      jsonl([
+        sessionEntry('sess-model'),
+        { type: 'model_change', modelId: 'anthropic/claude-opus-4', timestamp: '2024-01-01T00:00:30Z' },
+        msgEntry('user', 'hello', '2024-01-01T00:01:00Z'),
+      ])
+    )
+
+    const result = await collectSessions('http://gw')
+    expect(result).toHaveLength(1)
+    // modelId.split('/').pop() must yield the short model name
+    expect(result[0].model).toBe('claude-opus-4')
+  })
+
+  // -------------------------------------------------------------------------
   // .lock / .deleted / .reset files excluded
   // -------------------------------------------------------------------------
   it('ignores lock, deleted, and reset files', async () => {

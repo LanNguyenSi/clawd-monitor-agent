@@ -16,8 +16,8 @@ export default defineConfig({
         // parseArgs and parseArgs-related branches ARE covered.
       ],
       thresholds: {
-        // Thresholds set ~2-3 points below measured values (ratchet, not over-tight).
-        // Measured on 2026-06-29: statements=90.59, branches=81.31, functions=93.18, lines=93.17
+        // Thresholds set ~2-4 points below measured values (ratchet, not over-tight).
+        // Measured on 2026-06-29: statements=91.9, branches=82.96, functions=93.18, lines=94.3
         statements: 88,
         branches: 79,
         functions: 91,

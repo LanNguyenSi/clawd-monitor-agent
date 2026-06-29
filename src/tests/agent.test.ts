@@ -216,7 +216,13 @@ describe('Agent WebSocket client', () => {
       ws.emit('message', JSON.stringify({ type: 'auth_error', message: 'bad token' }))
 
       expect(ws.close).toHaveBeenCalled()
-      // Advance time: no reconnect should fire
+
+      // A real socket fires the 'close' event after close() is called.
+      // Emitting it here exercises the close-handler's `if (!this.stopped) scheduleReconnect()`
+      // guard — the path that the auth_error handler's `this.stopped = true` must block.
+      ws.emit('close', 1006)
+
+      // Advance time: no reconnect should fire because stopped===true
       vi.advanceTimersByTime(60_000)
       expect(wsFixture.getCount()).toBe(1) // only the first ws was ever created
     })
