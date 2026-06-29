@@ -28,7 +28,7 @@ Options:
 `)
 }
 
-function parseArgs(): Record<string, string | boolean> {
+export function parseArgs(): Record<string, string | boolean> {
   const args = process.argv.slice(2)
   const result: Record<string, string | boolean> = {}
 
@@ -48,16 +48,24 @@ function parseArgs(): Record<string, string | boolean> {
   return result
 }
 
-const args = parseArgs()
-const config = loadConfig(args as any)
+function main() {
+  const args = parseArgs()
+  const config = loadConfig(args as any)
 
-const agent = new Agent(config)
-agent.start()
+  const agent = new Agent(config)
+  agent.start()
 
-// Graceful shutdown
-process.on('SIGINT', () => { agent.stop(); process.exit(0) })
-process.on('SIGTERM', () => { agent.stop(); process.exit(0) })
+  // Graceful shutdown
+  process.on('SIGINT', () => { agent.stop(); process.exit(0) })
+  process.on('SIGTERM', () => { agent.stop(); process.exit(0) })
 
-console.log(`[clawd-agent] Starting "${config.name}" → ${config.server}`)
-console.log(`[clawd-agent] Gateway: ${config.gateway.url}`)
-console.log(`[clawd-agent] Push interval: ${config.intervalMs}ms`)
+  console.log(`[clawd-agent] Starting "${config.name}" → ${config.server}`)
+  console.log(`[clawd-agent] Gateway: ${config.gateway.url}`)
+  console.log(`[clawd-agent] Push interval: ${config.intervalMs}ms`)
+}
+
+// Entrypoint guard: prevents top-level execution when this module is imported
+// by tests or other modules; only runs when invoked directly as the main script.
+if (require.main === module) {
+  main()
+}
