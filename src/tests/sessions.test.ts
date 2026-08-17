@@ -322,6 +322,32 @@ describe('collectSessions', () => {
   })
 
   // -------------------------------------------------------------------------
+  // mixed block array: a null block and a non-text block carrying a `text`
+  // field must both be filtered while the real text block survives; asserting
+  // the exact surviving content pins the filter predicate and the `?.type`
+  // guard (a thrown TypeError would be swallowed by the per-line catch and
+  // leave recentMessages empty, so equality on 'kept' distinguishes the two)
+  // -------------------------------------------------------------------------
+  it('keeps only real text blocks when null and text-bearing non-text blocks are mixed in', async () => {
+    vi.mocked(readdir).mockResolvedValue(['sess-mixed.jsonl'] as unknown as Awaited<ReturnType<typeof readdir>>)
+    vi.mocked(readFile).mockResolvedValue(
+      jsonl([
+        sessionEntry('sess-mixed'),
+        msgEntry(
+          'assistant',
+          [null, { type: 'tool_result', text: 'SHOULD-NOT-LEAK' }, { type: 'text', text: 'kept' }],
+          '2024-01-01T00:01:00Z'
+        ),
+      ])
+    )
+
+    const result = await collectSessions('http://gw')
+    expect(result).toHaveLength(1)
+    expect(result[0].recentMessages).toHaveLength(1)
+    expect(result[0].recentMessages?.[0]?.content).toBe('kept')
+  })
+
+  // -------------------------------------------------------------------------
   // text block with a missing `text` field falls back to '' via `?? ''`
   // -------------------------------------------------------------------------
   it('falls back to an empty string for a text block with no text field', async () => {
