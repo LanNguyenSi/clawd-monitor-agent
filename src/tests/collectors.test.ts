@@ -84,6 +84,56 @@ describe('collectMetrics', () => {
     expect(result.memTotalBytes).toBe(8192 * 1024)
     expect(result.uptimeSeconds).toBe(3600)
   })
+
+  // ---------------------------------------------------------------------
+  // idle = parts[3] + (parts[4] ?? 0) -- iowait (parts[4]) missing from
+  // /proc/stat falls back to 0 instead of producing NaN.
+  // ---------------------------------------------------------------------
+  it('falls back to 0 for iowait when /proc/stat is missing that field', () => {
+    vi.mocked(readFileSync).mockImplementation((path) => {
+      if (String(path) === '/proc/stat') return 'cpu 0 0 0 0 0' // all-zero baseline, no ambiguity
+      throw new Error('ENOENT')
+    })
+    collectMetrics() // seeds prevCpuIdle=0, prevCpuTotal=0
+    vi.mocked(readFileSync).mockImplementation((path) => {
+      if (String(path) === '/proc/stat') return 'cpu 40 0 0 40' // only 4 fields; no iowait
+      throw new Error('ENOENT')
+    })
+    const result = collectMetrics()
+    // idle must equal parts[3] (40) with iowait treated as 0, not NaN or 1:
+    // total=80, diffIdle=40, diffTotal=80 -> cpu = round((1 - 40/80) * 100) = 50.
+    // A wrong fallback (e.g. NaN or a non-zero default) would shift this value.
+    expect(result.cpuPercent).toBe(50)
+  })
+
+  // ---------------------------------------------------------------------
+  // diffTotal > 0 ? ... : 0 -- a non-positive delta between two reads
+  // (e.g. two reads of the same /proc/stat snapshot) takes the false branch.
+  // ---------------------------------------------------------------------
+  it('treats a non-positive cpu delta as 0% (diffTotal > 0 ternary false branch)', () => {
+    vi.mocked(readFileSync).mockImplementation((path) => {
+      if (String(path) === '/proc/stat') return 'cpu 200 0 100 1000 0 0 0 0 0 0'
+      throw new Error('ENOENT')
+    })
+    collectMetrics() // first call seeds prevCpuIdle/prevCpuTotal to match this exact reading
+    const second = collectMetrics() // identical reading again -> diffTotal === 0, not > 0
+    expect(second.cpuPercent).toBe(0)
+  })
+
+  // ---------------------------------------------------------------------
+  // get(key): m ? parseInt(m[1]) * 1024 : 0 -- a meminfo key whose regex
+  // does not match (missing line) falls back to 0 rather than throwing.
+  // ---------------------------------------------------------------------
+  it('returns 0 for a /proc/meminfo field that has no matching line', () => {
+    vi.mocked(readFileSync).mockImplementation((path) => {
+      if (String(path) === '/proc/meminfo') return 'MemTotal: 8192 kB\nMemFree: 2048 kB\n' // no Buffers/Cached
+      throw new Error('ENOENT')
+    })
+    const result = collectMetrics()
+    // used = total - free - buffers(0) - cached(0); missing keys must fall back to 0
+    expect(result.memUsedBytes).toBe(8192 * 1024 - 2048 * 1024)
+    expect(result.memTotalBytes).toBe(8192 * 1024)
+  })
 })
 
 describe('collectDocker', () => {
@@ -112,5 +162,34 @@ describe('collectDocker', () => {
     vi.mocked(execSync).mockReturnValue('abc\tcontainer\timage\tStatus\tcreated\t1h ago\n')
     const result = collectDocker()
     expect(result[0].state).toBe('unknown')
+  })
+
+  // ---------------------------------------------------------------------
+  // A truncated docker ps line (fewer than 6 tab-separated fields) exercises
+  // the `?? ''` / `?? 'unknown'` fallback branches for statusStr, rawState,
+  // image, and uptime.
+  // ---------------------------------------------------------------------
+  it('falls back to defaults for fields missing from a truncated docker ps line', () => {
+    vi.mocked(execSync).mockReturnValue('abc123def456\tmy-app\n') // only id + name present
+    const result = collectDocker()
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe('abc123def456')
+    expect(result[0].name).toBe('my-app')
+    expect(result[0].image).toBe('') // parts[2] missing -> '' fallback
+    expect(result[0].state).toBe('unknown') // parts[4] missing -> 'unknown' fallback, not in the state enum
+    expect(result[0].restarts).toBe(0) // parts[3] missing -> '' status -> no restart match
+    expect(result[0].uptime).toBe('') // parts[5] missing -> '' fallback
+  })
+
+  // ---------------------------------------------------------------------
+  // A single-field docker ps line exercises the `parts[1] ?? ''` fallback
+  // for name, which the two-field fixture above does not reach.
+  // ---------------------------------------------------------------------
+  it('falls back to an empty name when a docker ps line has only an id', () => {
+    vi.mocked(execSync).mockReturnValue('onlyid\n')
+    const result = collectDocker()
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe('onlyid')
+    expect(result[0].name).toBe('') // parts[1] missing -> '' fallback
   })
 })

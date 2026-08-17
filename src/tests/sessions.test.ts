@@ -222,4 +222,206 @@ describe('collectSessions', () => {
     expect(result).toHaveLength(1)
     expect(vi.mocked(readFile)).toHaveBeenCalledTimes(1)
   })
+
+  // -------------------------------------------------------------------------
+  // entry.id not a string -> sessionKey stays undefined at parse time and
+  // falls back to the filename-derived key at push time.
+  // -------------------------------------------------------------------------
+  it('falls back to filename-derived sessionKey when session id is not a string', async () => {
+    vi.mocked(readdir).mockResolvedValue(['sess-noid.jsonl'] as unknown as Awaited<ReturnType<typeof readdir>>)
+    vi.mocked(readFile).mockResolvedValue(
+      jsonl([
+        { type: 'session', id: 12345, timestamp: '2024-01-01T00:00:00Z' }, // id is a number, not a string
+        msgEntry('user', 'hi', '2024-01-01T00:01:00Z'),
+      ])
+    )
+
+    const result = await collectSessions('http://gw')
+    expect(result).toHaveLength(1)
+    expect(result[0].sessionKey).toBe('agent:main:sess-noid')
+  })
+
+  // -------------------------------------------------------------------------
+  // role neither 'user' nor 'assistant' -> message is skipped entirely
+  // -------------------------------------------------------------------------
+  it('does not count or extract messages with a non-user/assistant role', async () => {
+    vi.mocked(readdir).mockResolvedValue(['sess-role.jsonl'] as unknown as Awaited<ReturnType<typeof readdir>>)
+    vi.mocked(readFile).mockResolvedValue(
+      jsonl([
+        sessionEntry('sess-role'),
+        { type: 'message', message: { role: 'system', content: 'system prompt' }, timestamp: '2024-01-01T00:00:30Z' },
+        msgEntry('user', 'hi', '2024-01-01T00:01:00Z'),
+      ])
+    )
+
+    const result = await collectSessions('http://gw')
+    expect(result).toHaveLength(1)
+    expect(result[0].messageCount).toBe(1) // the system message is not counted
+    expect(result[0].recentMessages).toHaveLength(1)
+    expect(result[0].recentMessages?.[0]?.role).toBe('user')
+  })
+
+  // -------------------------------------------------------------------------
+  // message entry with no `message` field -> msg?.role is undefined via
+  // optional chaining, so the role guard's condition is false.
+  // -------------------------------------------------------------------------
+  it('skips a message entry that has no message payload', async () => {
+    vi.mocked(readdir).mockResolvedValue(['sess-nomsg.jsonl'] as unknown as Awaited<ReturnType<typeof readdir>>)
+    vi.mocked(readFile).mockResolvedValue(
+      jsonl([
+        sessionEntry('sess-nomsg'),
+        { type: 'message', timestamp: '2024-01-01T00:00:30Z' }, // no `message` field at all
+        msgEntry('user', 'hi', '2024-01-01T00:01:00Z'),
+      ])
+    )
+
+    const result = await collectSessions('http://gw')
+    expect(result).toHaveLength(1)
+    expect(result[0].messageCount).toBe(1)
+    // the counted message must be the trailing 'hi' one, not the no-payload entry
+    expect(result[0].recentMessages).toHaveLength(1)
+    expect(result[0].recentMessages?.[0]?.content).toBe('hi')
+  })
+
+  // -------------------------------------------------------------------------
+  // content is neither a string nor an array -> content stays '' but the
+  // message is still counted (messageCount++ happens before content is read)
+  // -------------------------------------------------------------------------
+  it('counts but does not extract content when message content is neither string nor array', async () => {
+    vi.mocked(readdir).mockResolvedValue(['sess-badcontent.jsonl'] as unknown as Awaited<ReturnType<typeof readdir>>)
+    vi.mocked(readFile).mockResolvedValue(
+      jsonl([
+        sessionEntry('sess-badcontent'),
+        { type: 'message', message: { role: 'user', content: 42 }, timestamp: '2024-01-01T00:01:00Z' },
+      ])
+    )
+
+    const result = await collectSessions('http://gw')
+    expect(result).toHaveLength(1)
+    expect(result[0].messageCount).toBe(1)
+    expect(result[0].recentMessages).toHaveLength(0)
+  })
+
+  // -------------------------------------------------------------------------
+  // content-block array where every block is non-text (or null) -> the
+  // joined content is '' and the message is not pushed to recentMessages
+  // -------------------------------------------------------------------------
+  it('does not push a message when a content-block array yields no text', async () => {
+    vi.mocked(readdir).mockResolvedValue(['sess-notext.jsonl'] as unknown as Awaited<ReturnType<typeof readdir>>)
+    vi.mocked(readFile).mockResolvedValue(
+      jsonl([
+        sessionEntry('sess-notext'),
+        msgEntry('assistant', [{ type: 'tool_use', id: 'tu1' }, null], '2024-01-01T00:01:00Z'),
+      ])
+    )
+
+    const result = await collectSessions('http://gw')
+    expect(result).toHaveLength(1)
+    expect(result[0].messageCount).toBe(1)
+    expect(result[0].recentMessages).toHaveLength(0)
+  })
+
+  // -------------------------------------------------------------------------
+  // mixed block array: a null block and a non-text block carrying a `text`
+  // field must both be filtered while the real text block survives; asserting
+  // the exact surviving content pins the filter predicate and the `?.type`
+  // guard (a thrown TypeError would be swallowed by the per-line catch and
+  // leave recentMessages empty, so equality on 'kept' distinguishes the two)
+  // -------------------------------------------------------------------------
+  it('keeps only real text blocks when null and text-bearing non-text blocks are mixed in', async () => {
+    vi.mocked(readdir).mockResolvedValue(['sess-mixed.jsonl'] as unknown as Awaited<ReturnType<typeof readdir>>)
+    vi.mocked(readFile).mockResolvedValue(
+      jsonl([
+        sessionEntry('sess-mixed'),
+        msgEntry(
+          'assistant',
+          [null, { type: 'tool_result', text: 'SHOULD-NOT-LEAK' }, { type: 'text', text: 'kept' }],
+          '2024-01-01T00:01:00Z'
+        ),
+      ])
+    )
+
+    const result = await collectSessions('http://gw')
+    expect(result).toHaveLength(1)
+    expect(result[0].recentMessages).toHaveLength(1)
+    expect(result[0].recentMessages?.[0]?.content).toBe('kept')
+  })
+
+  // -------------------------------------------------------------------------
+  // text block with a missing `text` field falls back to '' via `?? ''`
+  // -------------------------------------------------------------------------
+  it('falls back to an empty string for a text block with no text field', async () => {
+    vi.mocked(readdir).mockResolvedValue(['sess-emptytext.jsonl'] as unknown as Awaited<ReturnType<typeof readdir>>)
+    vi.mocked(readFile).mockResolvedValue(
+      jsonl([
+        sessionEntry('sess-emptytext'),
+        msgEntry('assistant', [{ type: 'text' }, { type: 'text', text: 'ok' }], '2024-01-01T00:01:00Z'),
+      ])
+    )
+
+    const result = await collectSessions('http://gw')
+    expect(result).toHaveLength(1)
+    expect(result[0].recentMessages?.[0]?.content).toBe('ok')
+  })
+
+  // -------------------------------------------------------------------------
+  // message entry with a non-string timestamp does not update lastMessageAt;
+  // with no valid timestamp anywhere in the file, the session falls back to
+  // the file's mtime.
+  // -------------------------------------------------------------------------
+  it('falls back to file mtime for lastMessageAt when no message has a string timestamp', async () => {
+    const mtime = new Date('2024-06-01T00:00:00Z')
+    vi.mocked(readdir).mockResolvedValue(['sess-notime.jsonl'] as unknown as Awaited<ReturnType<typeof readdir>>)
+    vi.mocked(stat).mockResolvedValue(fakeStat(mtime))
+    vi.mocked(readFile).mockResolvedValue(
+      jsonl([
+        sessionEntry('sess-notime'),
+        { type: 'message', message: { role: 'user', content: 'hi' }, timestamp: 12345 }, // not a string
+      ])
+    )
+
+    const result = await collectSessions('http://gw')
+    expect(result).toHaveLength(1)
+    expect(result[0].lastMessageAt).toBe(mtime.toISOString())
+  })
+
+  // -------------------------------------------------------------------------
+  // entry.type matches none of 'session' / 'message' / 'model_change' -> the
+  // whole if/else-if chain falls through without touching any state.
+  // -------------------------------------------------------------------------
+  it('ignores JSONL entries with an unrecognized type', async () => {
+    vi.mocked(readdir).mockResolvedValue(['sess-unknown.jsonl'] as unknown as Awaited<ReturnType<typeof readdir>>)
+    vi.mocked(readFile).mockResolvedValue(
+      jsonl([
+        sessionEntry('sess-unknown'),
+        // unrecognized event type carrying a modelId -- must NOT be picked up
+        // as if it were a model_change entry
+        { type: 'heartbeat', modelId: 'anthropic/should-not-apply', timestamp: '2024-01-01T00:00:30Z' },
+        msgEntry('user', 'hi', '2024-01-01T00:01:00Z'),
+      ])
+    )
+
+    const result = await collectSessions('http://gw')
+    expect(result).toHaveLength(1)
+    expect(result[0].messageCount).toBe(1)
+    expect(result[0].model).toBeUndefined()
+  })
+
+  // -------------------------------------------------------------------------
+  // model_change entry with a non-string modelId leaves model undefined
+  // -------------------------------------------------------------------------
+  it('leaves model undefined when model_change modelId is not a string', async () => {
+    vi.mocked(readdir).mockResolvedValue(['sess-badmodel.jsonl'] as unknown as Awaited<ReturnType<typeof readdir>>)
+    vi.mocked(readFile).mockResolvedValue(
+      jsonl([
+        sessionEntry('sess-badmodel'),
+        { type: 'model_change', modelId: 12345, timestamp: '2024-01-01T00:00:30Z' },
+        msgEntry('user', 'hi', '2024-01-01T00:01:00Z'),
+      ])
+    )
+
+    const result = await collectSessions('http://gw')
+    expect(result).toHaveLength(1)
+    expect(result[0].model).toBeUndefined()
+  })
 })
