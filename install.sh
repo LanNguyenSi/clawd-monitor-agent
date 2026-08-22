@@ -80,7 +80,7 @@ Options:
   --name <name>            Display name in the dashboard (default: hostname)
   --gateway <url>          OpenClaw gateway URL (default: http://localhost:18789)
   --gateway-token <token>  OpenClaw gateway auth token
-  --interval <ms>          Snapshot push interval in ms (default: 5000)
+  --interval <ms>          Snapshot push interval in ms (default: 5000, min: 1000)
   -h, --help               Show this help
 
 Re-running the installer with the same args is a no-op restart.
