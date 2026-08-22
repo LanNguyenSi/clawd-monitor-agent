@@ -74,7 +74,7 @@ Usage: install.sh --server <url> --token <token> [options]
 
 Required:
   --server <url>           clawd-monitor server URL (https:// or wss://)
-  --token <token>          Agent auth token (created via Add Agent in the dashboard)
+  --token <token>          Agent auth token ("+ Add Agent" in the dashboard, or Settings -> Agent Tokens)
 
 Options:
   --name <name>            Display name in the dashboard (default: hostname)

@@ -22,7 +22,7 @@ node dist/cli.js \
 ## Adding a Collector
 
 1. Create `src/collectors/your-collector.ts`
-2. Export a `collect*()` async function returning the data
+2. Export a `collect*()` function returning the data (sync or async; see `src/collectors/index.ts` for how the existing ones are wired)
 3. Add to `src/collectors/index.ts` and the `AgentSnapshot` type
 
 ## Pull Requests
