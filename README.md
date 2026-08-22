@@ -48,7 +48,7 @@ clawd-monitor-agent \
   --gateway http://localhost:18789
 ```
 
-Get the token from the clawd-monitor Settings page (Settings → Agent Tokens → Generate).
+Get the token from the dashboard: click "+ Add Agent" in the top nav (generates the token and a paste-ready install command), or go to Settings → Agent Tokens to generate one directly.
 
 ## Options
 
@@ -56,11 +56,11 @@ Get the token from the clawd-monitor Settings page (Settings → Agent Tokens �
 |------|---------|-------------|
 | `--server` | — | clawd-monitor URL (required) |
 | `--token` | — | Agent token from Settings (required) |
-| `--name` | hostname | Display name in dashboard |
+| `--name` | `/etc/hostname` contents, or `unknown` | Display name in dashboard (Linux only: reads `/etc/hostname`, falls back to the literal string `unknown` on other platforms) |
 | `--gateway` | `http://localhost:18789` | OpenClaw gateway URL |
 | `--gateway-token` | — | OpenClaw gateway auth token |
 | `--clawd-dir` | `~/.openclaw/workspace` | Path to OpenClaw workspace (memory files only — see note) |
-| `--interval` | `5000` | Snapshot push interval (ms, minimum 1000) |
+| `--interval` | `5000` | Snapshot push interval (ms). The `--interval` flag itself is clamped to a minimum of 1000; an `intervalMs` set via `--config` is not clamped. |
 | `--config` | — | Path to JSON config file |
 | `--no-memory` | off | Disable memory-file collection (collected by default) |
 | `--no-docker` | off | Disable Docker collection (collected by default) |
