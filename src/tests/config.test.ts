@@ -14,8 +14,14 @@ vi.mock('crypto', () => ({
   randomUUID: vi.fn(),
 }))
 
+vi.mock('os', async () => {
+  const actual = await vi.importActual<typeof import('os')>('os')
+  return { ...actual, hostname: vi.fn(() => 'os-host') }
+})
+
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { randomUUID } from 'crypto'
+import { hostname } from 'os'
 import { loadConfig } from '../config.js'
 
 // ---------------------------------------------------------------------------
@@ -48,6 +54,8 @@ describe('loadConfig', () => {
     vi.mocked(writeFileSync).mockReset()
     vi.mocked(existsSync).mockReset()
     vi.mocked(randomUUID).mockReset()
+    vi.mocked(hostname).mockReset()
+    vi.mocked(hostname).mockReturnValue('os-host')
 
     // Default: no agent-id file; randomUUID returns a predictable value
     vi.mocked(existsSync).mockReturnValue(false)
@@ -168,6 +176,16 @@ describe('loadConfig', () => {
       const config = loadConfig(VALID_ARGS)
       expect(config.intervalMs).toBe(5000)
     })
+
+    it('clamps fileConfig.intervalMs below 1000 to 1000', () => {
+      vi.mocked(readFileSync).mockImplementation((path, _enc) => {
+        const p = String(path)
+        if (p === 'cfg.json') return JSON.stringify({ server: 'http://s', token: 't', intervalMs: 10 })
+        throw new Error(`Unexpected: ${p}`)
+      })
+      const config = loadConfig({ config: 'cfg.json' })
+      expect(config.intervalMs).toBe(1000)
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -207,20 +225,18 @@ describe('loadConfig', () => {
   // Hostname fallback
   // -------------------------------------------------------------------------
   describe('hostname fallback', () => {
-    it('falls back to "unknown" when /etc/hostname read throws', () => {
-      vi.mocked(readFileSync).mockImplementation((path, _enc) => {
-        if (String(path) === '/etc/hostname') throw new Error('ENOENT')
-        throw new Error(`Unexpected: ${path}`)
+    it('falls back to "unknown" when os.hostname() throws', () => {
+      vi.mocked(hostname).mockImplementation(() => {
+        throw new Error('no hostname')
       })
       const config = loadConfig(VALID_ARGS)
       expect(config.name).toBe('unknown')
     })
 
-    it('uses hostname from /etc/hostname when readable', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      vi.mocked(readFileSync).mockImplementation(makeReadFileMock() as any)
+    it('uses os.hostname() as the default name', () => {
+      vi.mocked(hostname).mockReturnValue('os-host')
       const config = loadConfig(VALID_ARGS)
-      expect(config.name).toBe('test-host')
+      expect(config.name).toBe('os-host')
     })
 
     it('args.name overrides hostname', () => {

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
-import { homedir } from 'os'
+import { homedir, hostname } from 'os'
 import { randomUUID } from 'crypto'
 import type { AgentConfig } from './types.js'
 
@@ -53,18 +53,18 @@ export function loadConfig(args: CliArgs): AgentConfig {
     process.exit(1)
   }
 
-  const hostname = (() => {
-    try { return readFileSync('/etc/hostname', 'utf-8').trim() } catch { return 'unknown' }
+  const defaultName = (() => {
+    try { return hostname() } catch { return 'unknown' }
   })()
 
   const intervalMs = args.interval
     ? Math.max(1000, parseInt(args.interval))
-    : fileConfig.intervalMs ?? 5000
+    : Math.max(1000, fileConfig.intervalMs ?? 5000)
 
   return {
     server,
     token,
-    name: args.name ?? fileConfig.name ?? hostname,
+    name: args.name ?? fileConfig.name ?? defaultName,
     agentId: fileConfig.agentId ?? getOrCreateAgentId(),
     gateway: {
       url: args.gateway ?? fileConfig.gateway?.url ?? 'http://localhost:18789',
