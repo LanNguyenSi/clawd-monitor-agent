@@ -214,7 +214,11 @@ describe('install.sh', () => {
   })
 
   describe('happy path', () => {
-    it('writes config + unit file and starts the service', () => {
+    // install.sh:114 hard-gates on `uname -s = Linux` before it does
+    // anything else, so these cases can only exercise real behavior
+    // on Linux; on macOS they'd just assert on the "only Linux is
+    // supported" bail-out instead.
+    it.skipIf(process.platform !== 'linux')('writes config + unit file and starts the service', () => {
       const r = runInstall(sandbox, [
         '--server', 'wss://clawd-monitor.example',
         '--token', 'super-secret-token',
@@ -247,7 +251,8 @@ describe('install.sh', () => {
       expect(log).toContain('systemctl\trestart clawd-monitor-agent')
     })
 
-    it('the unit file does NOT embed the token', () => {
+    // Linux-only for the same reason as above (install.sh:114).
+    it.skipIf(process.platform !== 'linux')('the unit file does NOT embed the token', () => {
       runInstall(sandbox, [
         '--server', 'wss://x',
         '--token', 'NEVER_IN_UNIT_FILE_xyz',
@@ -265,14 +270,18 @@ describe('install.sh', () => {
       expect(r.stderr).not.toContain('SECRET_TOKEN_xyz_must_not_leak')
     })
 
-    it('config file is mode 0640', () => {
+    // Linux-only: install.sh:114 gate, plus this test's assertion uses
+    // GNU `stat -c` (not available as-is on macOS/BSD stat).
+    it.skipIf(process.platform !== 'linux')('config file is mode 0640', () => {
       runInstall(sandbox, ['--server', 'wss://x', '--token', 't'])
       const stat = execFileSync('stat', ['-c', '%a', sandbox.configFile], { encoding: 'utf-8' }).trim()
       expect(stat).toBe('640')
     })
   })
 
-  describe('idempotency', () => {
+  // Every case here runs the installer to completion, which install.sh:114
+  // hard-gates on `uname -s = Linux` before doing anything else.
+  describe.skipIf(process.platform !== 'linux')('idempotency', () => {
     it('re-running with the same args restarts the service without leaking state', () => {
       const args = ['--server', 'wss://x', '--token', 'first-token']
       const first = runInstall(sandbox, args)
@@ -305,7 +314,9 @@ describe('install.sh', () => {
       expect(log.filter((l) => l.startsWith('apt-get\t')).length).toBe(0)
     })
 
-    it('runs NodeSource setup + apt-get install when node is missing', () => {
+    // Linux-only: install.sh:114 gate blocks the full install run this
+    // case needs before it ever reaches the node-detection logic.
+    it.skipIf(process.platform !== 'linux')('runs NodeSource setup + apt-get install when node is missing', () => {
       // Replace the node stub with a non-existent binary by removing it
       // from PATH for *only* this test. Easiest way: make the stub fail
       // the `command -v node` check by... actually `command -v` will
@@ -330,7 +341,9 @@ describe('install.sh', () => {
     })
   })
 
-  describe('verify step', () => {
+  // Every case here runs the installer to completion, which install.sh:114
+  // hard-gates on `uname -s = Linux` before doing anything else.
+  describe.skipIf(process.platform !== 'linux')('verify step', () => {
     it('fails loud on the wire-level "auth_error" message type', () => {
       writeStub(sandbox, 'journalctl', {
         stdout: 'Apr 26 12:00:00 host clawd[1]: received auth_error from server\n',
@@ -378,7 +391,8 @@ exit 0
     })
   })
 
-  describe('preflight', () => {
+  // Same install.sh:114 `uname -s = Linux` gate as the other blocks above.
+  describe.skipIf(process.platform !== 'linux')('preflight', () => {
     it('refuses when systemd is not detected', () => {
       // Point the systemd-probe path at a directory that doesn't exist.
       const r = runInstall(sandbox, ['--server', 'wss://x', '--token', 't'], {

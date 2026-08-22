@@ -25,6 +25,14 @@ node dist/cli.js \
 2. Export a `collect*()` function returning the data (sync or async; see `src/collectors/index.ts` for how the existing ones are wired)
 3. Add to `src/collectors/index.ts` and the `AgentSnapshot` type
 
+## Testing
+
+`src/tests/install-sh.test.ts` exercises `install.sh` through real bash.
+Most of its cases run only on Linux, since `install.sh` itself refuses to
+run on any other OS; on any non-Linux platform those cases report as skipped
+(not failed), and the remaining cases only fully exercise `install.sh` on
+Linux. CI (`ubuntu-latest`) always runs the full suite.
+
 ## Pull Requests
 
 - Branch naming: `feat/<name>` or `fix/<name>`
