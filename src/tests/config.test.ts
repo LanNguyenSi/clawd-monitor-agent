@@ -29,7 +29,7 @@ import { loadConfig } from '../config.js'
 // ---------------------------------------------------------------------------
 type ReadFileSyncFn = (path: Parameters<typeof readFileSync>[0], enc?: BufferEncoding) => string
 
-/** Returns a readFileSync mock that serves a valid /etc/hostname by default. */
+/** Returns a readFileSync mock for the agent-id file and --config paths. */
 function makeReadFileMock(
   overrides: Record<string, string | (() => string | never)> = {}
 ): ReadFileSyncFn {
@@ -40,7 +40,6 @@ function makeReadFileMock(
       if (typeof v === 'function') return (v as () => string)()
       return v
     }
-    if (p === '/etc/hostname') return 'test-host\n'
     throw new Error(`Unexpected readFileSync(${p})`)
   }
 }
@@ -80,7 +79,6 @@ describe('loadConfig', () => {
       vi.mocked(readFileSync).mockImplementation((path, _enc) => {
         const p = String(path)
         if (p.endsWith('.clawd-agent-id')) return '  existing-id-1234  \n'
-        if (p === '/etc/hostname') return 'test-host\n'
         throw new Error(`Unexpected readFileSync(${p})`)
       })
 
@@ -113,7 +111,6 @@ describe('loadConfig', () => {
       vi.mocked(readFileSync).mockImplementation((path, _enc) => {
         const p = String(path)
         if (p === 'bad.json') return '{not valid json'
-        if (p === '/etc/hostname') return 'test-host\n'
         throw new Error(`Unexpected: ${p}`)
       })
 
@@ -124,7 +121,6 @@ describe('loadConfig', () => {
       vi.mocked(readFileSync).mockImplementation((path, _enc) => {
         const p = String(path)
         if (p === 'cfg.json') return JSON.stringify({ server: 'http://from-file', token: 'file-token' })
-        if (p === '/etc/hostname') return 'test-host\n'
         throw new Error(`Unexpected: ${p}`)
       })
 
@@ -165,7 +161,6 @@ describe('loadConfig', () => {
       vi.mocked(readFileSync).mockImplementation((path, _enc) => {
         const p = String(path)
         if (p === 'cfg.json') return JSON.stringify({ server: 'http://s', token: 't', intervalMs: 7500 })
-        if (p === '/etc/hostname') return 'test-host\n'
         throw new Error(`Unexpected: ${p}`)
       })
       const config = loadConfig({ config: 'cfg.json' })
@@ -185,6 +180,16 @@ describe('loadConfig', () => {
       })
       const config = loadConfig({ config: 'cfg.json' })
       expect(config.intervalMs).toBe(1000)
+    })
+
+    it('passes fileConfig.intervalMs through unchanged when at or above 1000', () => {
+      vi.mocked(readFileSync).mockImplementation((path, _enc) => {
+        const p = String(path)
+        if (p === 'cfg.json') return JSON.stringify({ server: 'http://s', token: 't', intervalMs: 2000 })
+        throw new Error(`Unexpected: ${p}`)
+      })
+      const config = loadConfig({ config: 'cfg.json' })
+      expect(config.intervalMs).toBe(2000)
     })
   })
 
@@ -213,7 +218,6 @@ describe('loadConfig', () => {
         const p = String(path)
         if (p === 'cfg.json')
           return JSON.stringify({ server: 'http://s', token: 't', collect: { memory: true } })
-        if (p === '/etc/hostname') return 'test-host\n'
         throw new Error(`Unexpected: ${p}`)
       })
       const config = loadConfig({ config: 'cfg.json', memory: false })
