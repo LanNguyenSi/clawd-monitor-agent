@@ -56,7 +56,7 @@ Get the token from the dashboard: click "+ Add Agent" in the top nav (generates 
 |------|---------|-------------|
 | `--server` | — | clawd-monitor URL (required) |
 | `--token` | — | Agent token from Settings (required) |
-| `--name` | `/etc/hostname` contents, or `unknown` | Display name in dashboard (Linux only: reads `/etc/hostname`, falls back to the literal string `unknown` on other platforms) |
+| `--name` | `/etc/hostname` contents, or `unknown` | Display name in dashboard (reads `/etc/hostname`; falls back to the literal string `unknown` if that file cannot be read, any non-Linux host, and Linux hosts without `/etc/hostname`) |
 | `--gateway` | `http://localhost:18789` | OpenClaw gateway URL |
 | `--gateway-token` | — | OpenClaw gateway auth token |
 | `--clawd-dir` | `~/.openclaw/workspace` | Path to OpenClaw workspace (memory files only — see note) |
