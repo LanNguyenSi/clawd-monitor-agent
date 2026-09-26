@@ -37,7 +37,7 @@ same key from the file.
 | `--interval` | `intervalMs` |
 | `--no-memory` | `collect.memory` (set `false` in the file to disable) |
 | `--no-docker` | `collect.docker` (set `false` in the file to disable) |
-| `--debug` | `logLevel` (the flag only ever sets `"debug"`; the file accepts `debug`, `info` (default), `warn`, or `error`; any other value, including a different letter case, silently turns off all log output) |
+| `--debug` | `logLevel` (the flag only ever sets `"debug"`; the file accepts `debug`, `info` (default), `warn`, or `error`; any other value, including a different letter case, silently suppresses all leveled `[clawd-agent][...]` log lines; the startup banner still prints) |
 
 `--version` and `--help`/`-h` have no config-file equivalent: they only
 exit immediately after printing.

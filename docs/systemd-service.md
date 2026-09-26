@@ -33,8 +33,13 @@ useradd --system --home-dir /var/lib/clawd-agent --create-home --shell /usr/sbin
 usermod -aG docker clawd-agent   # optional, only if the host has a docker group
 ```
 
+Membership in the `docker` group is root-equivalent; skip it (or run with
+`--no-docker`) if you do not need container data.
+
 The home directory must be writable: the agent caches its id in
-`~/.clawd-agent-id`.
+`~/.clawd-agent-id`. With this unit, `~` is `/var/lib/clawd-agent`: sessions
+are read from the service user's `$HOME/.openclaw`, so set `clawd_dir` (and
+make the OpenClaw data readable) if your workspace lives elsewhere.
 
 Use `command -v clawd-monitor-agent` to find the actual binary path for
 `ExecStart` on your system. Create the config file with the same shape
