@@ -22,7 +22,30 @@
 
 ## Config file
 
-Any option above except `--config` itself can be set in a JSON file passed via `--config`:
+A `--config` JSON file can set the following keys, each read by `loadConfig`
+(`src/config.ts`). A matching command-line flag, when given, overrides the
+same key from the file.
+
+| Flag | Config key |
+|------|------------|
+| `--server` | `server` |
+| `--token` | `token` |
+| `--name` | `name` |
+| `--gateway` | `gateway.url` |
+| `--gateway-token` | `gateway.token` |
+| `--clawd-dir` | `clawd_dir` |
+| `--interval` | `intervalMs` |
+| `--no-memory` | `collect.memory` (set `false` in the file to disable) |
+| `--no-docker` | `collect.docker` (set `false` in the file to disable) |
+| `--debug` | `logLevel` (the flag only ever sets `"debug"`; the file accepts `debug`, `info` (default), `warn`, or `error`; any other value, including a different letter case, silently turns off all log output) |
+
+`--version` and `--help`/`-h` have no config-file equivalent: they only
+exit immediately after printing.
+
+The file can also set keys with no command-line flag at all: `agentId`
+(persisted agent identity; auto-generated and cached at
+`~/.clawd-agent-id` if omitted) and `collect.sessions`, `collect.cron`,
+`collect.metrics` (all default to `true`, no CLI toggle exists for them).
 
 ```json
 {
@@ -43,7 +66,13 @@ Any option above except `--config` itself can be set in a JSON file passed via `
 }
 ```
 
-A matching command-line flag overrides the same key from `--config`.
+`loadConfig` ignores any key in the file it does not recognize; a typo in
+a key name is silently dropped rather than reported.
+
+If you installed with `install.sh`, note that re-running it rewrites
+`/etc/clawd-monitor-agent/config.json` from scratch (its `write_config`
+step), so any key you hand-added to that file is lost on the next
+install/upgrade run.
 
 ## Installer flags
 
