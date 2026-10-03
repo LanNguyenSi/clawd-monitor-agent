@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Publish workflows now install npm with `npm install -g npm@^11.5.1` (the documented trusted-publishing floor) instead of the floating `npm@11`, and the retry loop's "reached the registry despite a non-zero publish exit" branch now probes `npm view <pkg>@<version> dist.attestations` and fails with an error when the attestation is empty, so a partially completed publish is no longer announced green. CI only; no package code change.
+
 ## [0.1.0] - 2026-04-26
 
 First public release. Pre-1.0: the WebSocket protocol and config
