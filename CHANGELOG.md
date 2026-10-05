@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-05
+
+### Fixed
+
+- The WebSocket `auth` message now reports the package version
+  (read from `package.json`) instead of a hardcoded `1.0.0`, so the
+  dashboard shows the real agent version.
+- The default agent name now comes from `os.hostname()` instead of
+  reading `/etc/hostname`, so it is correct on hosts without that file
+  (macOS, Windows), matching the CLI help. An agent without an explicit
+  name may appear under a different dashboard name where `os.hostname()`
+  differs from `/etc/hostname`; set `name` in the config or pass `--name`
+  to keep the old one.
+- An `intervalMs` read from the config file is now clamped to the 1000 ms
+  minimum, the same as `--interval`; before, a smaller config value was
+  used as is, so a config with a smaller value now pushes every 1000 ms.
+- The installer's `--help` text now states the 1000 ms interval minimum
+  and where agent tokens are created in the dashboard.
+
 ### Changed
 
 - The publish workflow now installs npm with `npm install -g npm@^11.5.1` (the documented trusted-publishing floor) instead of the floating `npm@11`, and the publish step's two success-on-registry exits (the "already on the registry" idempotency check before the retry loop and the loop's "reached the registry despite a non-zero publish exit" branch) now probe `npm view <pkg>@<version> dist.attestations` and fail with an error when the attestation is empty (or when the probe itself fails), so a partially completed publish is no longer announced green. CI only; no package code change.
