@@ -16,10 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   dashboard shows the real agent version.
 - The default agent name now comes from `os.hostname()` instead of
   reading `/etc/hostname`, so it is correct on hosts without that file
-  (macOS, Windows), matching the CLI help.
+  (macOS, Windows), matching the CLI help. An agent without an explicit
+  name may appear under a different dashboard name where `os.hostname()`
+  differs from `/etc/hostname`; set `name` in the config or pass `--name`
+  to keep the old one.
 - An `intervalMs` read from the config file is now clamped to the 1000 ms
   minimum, the same as `--interval`; before, a smaller config value was
-  used as is.
+  used as is, so a config with a smaller value now pushes every 1000 ms.
 - The installer's `--help` text now states the 1000 ms interval minimum
   and where agent tokens are created in the dashboard.
 
