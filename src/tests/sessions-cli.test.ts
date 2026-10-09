@@ -12,7 +12,6 @@ vi.mock('node:fs/promises', () => ({
 
 import { runOpenclaw } from '../collectors/cli.js'
 import { collectSessions } from '../collectors/sessions.js'
-import { parseCliJson } from '../collectors/cli.js'
 
 const cliPayload = {
   sessions: [
@@ -78,8 +77,43 @@ describe('collectSessions (openclaw sessions CLI)', () => {
   })
 })
 
-describe('parseCliJson', () => {
-  it('throws when no JSON is present', () => {
-    expect(() => parseCliJson('nope')).toThrow()
+describe('collectSessions edge cases', () => {
+  beforeEach(() => {
+    vi.mocked(runOpenclaw).mockReset()
+    vi.stubGlobal('fetch', vi.fn())
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('defaults kind to main and omits lastMessageAt when updatedAt is missing', async () => {
+    vi.mocked(runOpenclaw).mockResolvedValue(JSON.stringify({ sessions: [{ key: 'k' }] }))
+    const r = await collectSessions('http://gw')
+    expect(r[0]).toMatchObject({ sessionKey: 'k', kind: 'main' })
+    expect(r[0].lastMessageAt).toBeUndefined()
+  })
+
+  it('falls back to legacy when the payload has no sessions array', async () => {
+    vi.mocked(runOpenclaw).mockResolvedValue(JSON.stringify({ nope: true }))
+    expect(await collectSessions('http://gw')).toEqual([])
+  })
+
+  it('handles string content, string timestamps, the legacy "messages" key and caps at 5', async () => {
+    vi.mocked(runOpenclaw).mockResolvedValue(JSON.stringify({ sessions: [{ key: 'k', updatedAt: 1 }] }))
+    const messages = Array.from({ length: 8 }, (_, i) => ({
+      role: 'user', content: 'm' + i, timestamp: '2026-01-01T00:00:0' + i + 'Z',
+    }))
+    messages.push({ role: 'assistant', content: '   ', timestamp: undefined as never }) // empty → dropped
+    messages.push({ role: 'assistant', content: { not: 'array' } as never, timestamp: undefined as never })
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ messages }) } as unknown as Response)
+    const r = await collectSessions('http://gw', 'tok')
+    expect(r[0].recentMessages).toHaveLength(5)
+    expect(r[0].recentMessages?.[4]).toMatchObject({ content: 'm7', timestamp: '2026-01-01T00:00:07Z' })
+  })
+
+  it('returns [] recent messages when history is non-ok or has no items', async () => {
+    vi.mocked(runOpenclaw).mockResolvedValue(JSON.stringify({ sessions: [{ key: 'k' }] }))
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as unknown as Response)
+    expect((await collectSessions('http://gw', 'tok'))[0].recentMessages).toEqual([])
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({}) } as unknown as Response)
+    expect((await collectSessions('http://gw', 'tok'))[0].recentMessages).toEqual([])
   })
 })

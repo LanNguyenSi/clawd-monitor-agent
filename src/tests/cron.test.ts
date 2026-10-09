@@ -91,4 +91,18 @@ describe('collectCronJobs', () => {
     const result = await collectCronJobs('http://localhost:18789')
     expect(result).toEqual([])
   })
+
+  it('falls back to displayName and drops unknown state fields', async () => {
+    vi.mocked(execSync).mockResolvedValue(
+      'log line\n' + JSON.stringify({ jobs: [{ id: 'j', displayName: 'Disp', schedule: {}, enabled: true, status: 'idle', state: { nextRunAtMs: 5, lastRunStatus: 'ok', lastError: 'e', extra: 1 } }] }),
+    )
+    const r = await collectCronJobs('http://localhost:18789')
+    expect(r[0]).toMatchObject({ name: 'Disp', status: 'idle', state: { nextRunAtMs: 5, lastRunStatus: 'ok', lastError: 'e' } })
+    expect(r[0].state).not.toHaveProperty('extra')
+  })
+
+  it('keeps state undefined when the job has none', async () => {
+    vi.mocked(execSync).mockResolvedValue(JSON.stringify({ jobs: [{ id: 'j', schedule: {}, enabled: true }] }))
+    expect((await collectCronJobs('x'))[0].state).toBeUndefined()
+  })
 })
