@@ -8,8 +8,10 @@ vi.mock('../collectors/cli.js', async (orig) => ({
   runOpenclaw: vi.fn(),
 }))
 
+vi.mock('../collectors/gateway-rpc.js', () => ({ withGatewayRpc: vi.fn() }))
 import { runOpenclaw as execSync } from '../collectors/cli.js'
 import { clearCache } from '../collectors/cache.js'
+import { withGatewayRpc } from '../collectors/gateway-rpc.js'
 import { collectCronJobs } from '../collectors/cron.js'
 
 // ---------------------------------------------------------------------------
@@ -26,6 +28,7 @@ const sampleJob = {
 describe('collectCronJobs', () => {
   beforeEach(() => {
     clearCache()
+    vi.mocked(withGatewayRpc).mockReset().mockRejectedValue(new Error('no gateway'))
     vi.mocked(execSync).mockReset()
   })
 
@@ -106,5 +109,33 @@ describe('collectCronJobs', () => {
   it('keeps state undefined when the job has none', async () => {
     vi.mocked(execSync).mockResolvedValue(JSON.stringify({ jobs: [{ id: 'j', schedule: {}, enabled: true }] }))
     expect((await collectCronJobs('x'))[0].state).toBeUndefined()
+  })
+
+  it('uses cron.list over the gateway when a token is available', async () => {
+    vi.mocked(withGatewayRpc).mockImplementation((async (_u: string, _t: string, fn: (c: unknown) => unknown) =>
+      fn(async (method: string, params: unknown) => {
+        expect(method).toBe('cron.list')
+        expect(params).toEqual({ includeDisabled: true })
+        return { jobs: [{ id: 'g1', name: 'G', schedule: {}, enabled: true, state: { nextRunAtMs: 9 } }] }
+      })) as never)
+    const r = await collectCronJobs('http://gw', 'tok')
+    expect(execSync).not.toHaveBeenCalled()
+    expect(r).toEqual([{ id: 'g1', name: 'G', schedule: {}, enabled: true, status: undefined, state: { nextRunAtMs: 9, lastRunAtMs: undefined, lastRunStatus: undefined, lastError: undefined } }])
+  })
+
+  it('falls back to the CLI when the gateway fails or answers garbage', async () => {
+    vi.mocked(execSync).mockResolvedValue(JSON.stringify({ jobs: [sampleJob] }))
+    expect(await collectCronJobs('http://gw', 'tok')).toHaveLength(1) // rejected by default mock
+    vi.mocked(withGatewayRpc).mockImplementation((async (_u: string, _t: string, fn: (c: unknown) => unknown) =>
+      fn(async () => ({ jobs: 'x' }))) as never)
+    expect(await collectCronJobs('http://gw', 'tok')).toHaveLength(1)
+  })
+
+  it('reads the token from OPENCLAW_GATEWAY_TOKEN', async () => {
+    vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', 'env-tok')
+    vi.mocked(withGatewayRpc).mockResolvedValue([] as never)
+    await collectCronJobs('http://gw')
+    expect(vi.mocked(withGatewayRpc).mock.calls[0][1]).toBe('env-tok')
+    vi.unstubAllEnvs()
   })
 })

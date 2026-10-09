@@ -4,6 +4,7 @@ vi.mock('../collectors/cli.js', async (orig) => ({
   ...(await orig<typeof import('../collectors/cli.js')>()),
   runOpenclaw: vi.fn(),
 }))
+vi.mock('../collectors/gateway-rpc.js', () => ({ withGatewayRpc: vi.fn() }))
 vi.mock('node:fs/promises', () => ({
   readdir: vi.fn().mockRejectedValue(new Error('ENOENT')),
   readFile: vi.fn(),
@@ -12,6 +13,7 @@ vi.mock('node:fs/promises', () => ({
 
 import { runOpenclaw } from '../collectors/cli.js'
 import { clearCache } from '../collectors/cache.js'
+import { withGatewayRpc } from '../collectors/gateway-rpc.js'
 import { collectSessions } from '../collectors/sessions.js'
 
 const cliPayload = {
@@ -24,6 +26,7 @@ const cliPayload = {
 describe('collectSessions (openclaw sessions CLI)', () => {
   beforeEach(() => {
     clearCache()
+    vi.mocked(withGatewayRpc).mockReset().mockRejectedValue(new Error('no gateway'))
     vi.mocked(runOpenclaw).mockReset()
     vi.stubGlobal('fetch', vi.fn())
   })
@@ -82,6 +85,7 @@ describe('collectSessions (openclaw sessions CLI)', () => {
 describe('collectSessions history token source', () => {
   beforeEach(() => {
     clearCache()
+    vi.mocked(withGatewayRpc).mockReset().mockRejectedValue(new Error('no gateway'))
     vi.mocked(runOpenclaw).mockReset()
     vi.stubGlobal('fetch', vi.fn())
   })
@@ -110,6 +114,7 @@ describe('collectSessions history token source', () => {
 describe('collectSessions edge cases', () => {
   beforeEach(() => {
     clearCache()
+    vi.mocked(withGatewayRpc).mockReset().mockRejectedValue(new Error('no gateway'))
     vi.mocked(runOpenclaw).mockReset()
     vi.stubGlobal('fetch', vi.fn())
   })
@@ -146,5 +151,100 @@ describe('collectSessions edge cases', () => {
     expect((await collectSessions('http://gw', 'tok'))[0].recentMessages).toEqual([])
     vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({}) } as unknown as Response)
     expect((await collectSessions('http://gw', 'tok'))[0].recentMessages).toEqual([])
+  })
+})
+
+describe('collectSessions via Gateway RPC', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+    clearCache()
+    vi.mocked(runOpenclaw).mockReset()
+    vi.mocked(withGatewayRpc).mockReset()
+  })
+  afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals() })
+
+  const rows = [
+    { key: 'a', kind: 'direct', model: 'm', updatedAt: 1000, status: 'done', totalTokens: 5 },
+    { key: 'b', kind: 'direct', model: 'm', updatedAt: 2000, status: 'running' },
+  ]
+  function fakeGateway(handlers: Record<string, unknown>) {
+    vi.mocked(withGatewayRpc).mockImplementation((async (_u: string, _t: string, fn: (c: unknown) => unknown) =>
+      fn(async (method: string, params?: unknown) => {
+        const h = handlers[method]
+        if (h instanceof Error) throw h
+        calls.push([method, params])
+        return h
+      })) as never)
+  }
+  const calls: Array<[string, unknown]> = []
+  beforeEach(() => { calls.length = 0 })
+
+  it('lists sessions and fills previews with one bulk call, never touching the CLI', async () => {
+    fakeGateway({
+      'sessions.list': { sessions: rows },
+      'sessions.preview': {
+        previews: [
+          { key: 'b', status: 'ok', items: [{ role: 'user', text: 'hi' }, { role: 'custom', text: 'x' }, { role: 'assistant', text: 'yo' }, { role: 'assistant', text: '' }] },
+          { key: 'a', status: 'cold', items: [] },
+        ],
+      },
+    })
+    const r = await collectSessions('http://127.0.0.1:18789', 'tok')
+    expect(runOpenclaw).not.toHaveBeenCalled()
+    expect(vi.mocked(withGatewayRpc).mock.calls[0][0]).toBe('http://127.0.0.1:18789')
+    expect(vi.mocked(withGatewayRpc).mock.calls[0][1]).toBe('tok')
+    expect(r.map((x) => x.sessionKey)).toEqual(['b', 'a'])
+    expect(r[0].recentMessages).toEqual([{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'yo' }])
+    expect(r[1].recentMessages).toEqual([])
+    expect(calls.map((c) => c[0])).toEqual(['sessions.list', 'sessions.preview'])
+    expect(calls[1][1]).toMatchObject({ keys: ['b', 'a'], limit: 5 })
+  })
+
+  it('keeps the rows when previews fail or the list is empty', async () => {
+    fakeGateway({ 'sessions.list': { sessions: rows }, 'sessions.preview': new Error('nope') })
+    const r = await collectSessions('http://gw', 'tok')
+    expect(r).toHaveLength(2)
+    expect(r[0].recentMessages).toEqual([])
+
+    calls.length = 0
+    fakeGateway({ 'sessions.list': { sessions: [] } })
+    expect(await collectSessions('http://gw', 'tok')).toEqual([])
+    expect(calls.map((c) => c[0])).toEqual(['sessions.list'])
+  })
+
+  it('tolerates a preview payload without previews / items', async () => {
+    fakeGateway({ 'sessions.list': { sessions: [rows[0]] }, 'sessions.preview': { previews: [{ key: 'a' }] } })
+    expect((await collectSessions('http://gw', 'tok'))[0].recentMessages).toEqual([])
+    fakeGateway({ 'sessions.list': { sessions: [rows[0]] }, 'sessions.preview': {} })
+    expect((await collectSessions('http://gw', 'tok'))[0].recentMessages).toEqual([])
+  })
+
+  it('uses OPENCLAW_GATEWAY_TOKEN when no token is passed', async () => {
+    vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', 'env-tok')
+    fakeGateway({ 'sessions.list': { sessions: [] } })
+    await collectSessions('http://gw')
+    expect(vi.mocked(withGatewayRpc).mock.calls[0][1]).toBe('env-tok')
+  })
+
+  it('falls back to the CLI when the gateway call fails', async () => {
+    vi.mocked(withGatewayRpc).mockRejectedValue(new Error('ECONNREFUSED'))
+    vi.mocked(runOpenclaw).mockResolvedValue(JSON.stringify({ sessions: [rows[1]] }))
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ items: [] }) } as unknown as Response)
+    const r = await collectSessions('http://gw', 'tok')
+    expect(runOpenclaw).toHaveBeenCalled()
+    expect(r[0].sessionKey).toBe('b')
+  })
+
+  it('falls back to the CLI when the list payload is malformed', async () => {
+    fakeGateway({ 'sessions.list': { nope: 1 } })
+    vi.mocked(runOpenclaw).mockResolvedValue(JSON.stringify({ sessions: [rows[0]] }))
+    expect((await collectSessions('http://gw', 'tok'))[0].sessionKey).toBe('a')
+  })
+
+  it('does not attempt the gateway without any token', async () => {
+    vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', '')
+    vi.mocked(runOpenclaw).mockResolvedValue(JSON.stringify({ sessions: [rows[0]] }))
+    await collectSessions('http://gw')
+    expect(withGatewayRpc).not.toHaveBeenCalled()
   })
 })
