@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Sessions and cron jobs are read from the local OpenClaw Gateway over WebSocket** (`sessions.list`, one bulk `sessions.preview`, `cron.list`; operator `read` scope only) instead of spawning the `openclaw` CLI. A call takes tens of milliseconds instead of `3 s of CPU. This needs a Gateway token: `gateway.token` in the config, or the `OPENCLAW_GATEWAY_TOKEN` environment variable (preferred: unlike `gateway.token` it is **not** forwarded to the dashboard server). Without a token, or if the Gateway is unreachable, the agent falls back to the cached CLI path and then to the legacy JSONL reader.
+
 ## [0.1.1] - 2026-10-05
 
 ### Fixed

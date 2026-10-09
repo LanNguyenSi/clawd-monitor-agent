@@ -1,5 +1,20 @@
 # CLI reference
 
+## OpenClaw data sources
+
+Sessions and cron jobs are collected in this order:
+
+1. **Gateway WebSocket RPC** when a Gateway token is available (`--gateway-token`, `gateway.token`, or the `OPENCLAW_GATEWAY_TOKEN` environment variable). The agent logs in with the operator `read` scope and calls `sessions.list`, `sessions.preview` and `cron.list`. This takes tens of milliseconds.
+2. **`openclaw` CLI** (`sessions --all-agents --json`, `cron list --all --json`), cached for 30 s and 60 s. Each call cold-starts Node (about 3 s of CPU).
+3. **Legacy JSONL transcripts** under `~/.openclaw/agents/main/sessions/` (OpenClaw before 2026.9).
+
+With systemd, put the token in an environment file (mode 0600) and reference it from the unit:
+
+```ini
+[Service]
+EnvironmentFile=/etc/clawd-monitor-agent/openclaw.env   # OPENCLAW_GATEWAY_TOKEN=...
+```
+
 ## Options
 
 | Flag | Default | Description |
@@ -8,7 +23,7 @@
 | `--token` | none | Agent token from Settings (required) |
 | `--name` | OS hostname, or `unknown` | Display name in dashboard (uses `os.hostname()`; falls back to the literal string `unknown` if that call throws) |
 | `--gateway` | `http://localhost:18789` | OpenClaw gateway URL |
-| `--gateway-token` | none | OpenClaw gateway auth token |
+| `--gateway-token` | none | OpenClaw gateway auth token. Enables the Gateway WebSocket collectors for sessions and cron. This value is also sent to the dashboard server in the `auth` message; prefer the `OPENCLAW_GATEWAY_TOKEN` environment variable, which is not forwarded |
 | `--clawd-dir` | `~/.openclaw/workspace` | Path to OpenClaw workspace (memory files only, see note) |
 | `--interval` | `5000` | Snapshot push interval (ms). Clamped to a minimum of 1000, whether set via `--interval` or `intervalMs` in a `--config` file. |
 | `--config` | none | Path to JSON config file |

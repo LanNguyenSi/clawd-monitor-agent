@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import type { Session, SessionMessage } from '../types.js'
 import { runOpenclaw, parseCliJson } from './cli.js'
 import { cachedCall } from './cache.js'
+import { withGatewayRpc } from './gateway-rpc.js'
 
 export const SESSIONS_CACHE_TTL_MS = 30_000
 
@@ -170,20 +171,86 @@ export async function fetchRecentMessages(
   }
 }
 
+interface PreviewResponse {
+  previews?: Array<{ key: string; status?: string; items?: Array<{ role?: string; text?: string }> }>
+}
+
+function toSession(row: CliSession, recentMessages: SessionMessage[]): Session {
+  return {
+    sessionKey: row.key,
+    kind: row.kind ?? 'main',
+    model: row.model,
+    lastMessageAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : undefined,
+    status: row.status,
+    totalTokens: row.totalTokens,
+    recentMessages,
+  }
+}
+
 /**
- * Collect sessions. OpenClaw 2026.9+ stores sessions in SQLite, so the
- * supported read path is `openclaw sessions --all-agents --json`; recent
- * messages come from the Gateway HTTP history endpoint when a Gateway token
- * is available (config \`gateway.token\` or the OPENCLAW_GATEWAY_TOKEN env var). Falls back to legacy JSONL transcripts if the CLI fails.
+ * Preferred path (OpenClaw 2026.9+): ask the local Gateway over WebSocket.
+ * `sessions.list` gives the rows, one bulk `sessions.preview` gives the last
+ * messages. Unlike `chat.history`, preview never restores archived (cold)
+ * transcripts, so polling is side-effect free. ~tens of ms, no child process.
+ */
+export async function collectSessionsViaGateway(
+  gatewayUrl: string,
+  token: string,
+): Promise<Session[]> {
+  return withGatewayRpc(gatewayUrl, token, async (call) => {
+    const list = await call<CliSessionsResponse>('sessions.list', { limit: 20 })
+    if (!Array.isArray(list.sessions)) throw new Error('unexpected sessions.list payload')
+
+    const rows = [...list.sessions]
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      .slice(0, 20)
+
+    const byKey = new Map<string, SessionMessage[]>()
+    if (rows.length > 0) {
+      try {
+        const prev = await call<PreviewResponse>('sessions.preview', {
+          keys: rows.map((r) => r.key),
+          limit: MAX_RECENT_MESSAGES,
+          maxChars: 200,
+        })
+        for (const p of prev.previews ?? []) {
+          const msgs: SessionMessage[] = []
+          for (const it of p.items ?? []) {
+            if ((it.role === 'user' || it.role === 'assistant') && it.text) {
+              msgs.push({ role: it.role, content: it.text.slice(0, 200) })
+            }
+          }
+          byKey.set(p.key, msgs.slice(-MAX_RECENT_MESSAGES))
+        }
+      } catch {
+        /* previews are best effort; the session rows are still useful */
+      }
+    }
+    return rows.map((row) => toSession(row, byKey.get(row.key) ?? []))
+  })
+}
+
+/**
+ * Collect sessions. Order of preference:
+ *  1. Gateway WebSocket RPC (needs a Gateway token: config `gateway.token` or
+ *     the OPENCLAW_GATEWAY_TOKEN env var, which stays on the host),
+ *  2. `openclaw sessions --all-agents --json` (+ HTTP history), cached,
+ *  3. legacy JSONL transcripts (OpenClaw < 2026.9).
  */
 export async function collectSessions(
   gatewayUrl: string,
   gatewayToken?: string,
   clawdDir?: string
 ): Promise<Session[]> {
-  // The history token may come from the environment so it can stay on the host:
-  // config.gateway.token is forwarded to the dashboard server, this is not.
+  // config.gateway.token is forwarded to the dashboard server; the env var is not.
   const historyToken = gatewayToken ?? process.env.OPENCLAW_GATEWAY_TOKEN
+  if (historyToken) {
+    try {
+      return await collectSessionsViaGateway(gatewayUrl, historyToken)
+    } catch {
+      /* fall through to the CLI */
+    }
+  }
   try {
     const stdout = await cachedCall('sessions', SESSIONS_CACHE_TTL_MS, () =>
       runOpenclaw(['sessions', '--all-agents', '--json', '--limit', '20']),
@@ -196,18 +263,9 @@ export async function collectSessions(
       .slice(0, 20)
 
     return await Promise.all(
-      rows.map(async (row): Promise<Session> => {
-        const recentMessages = await fetchRecentMessages(gatewayUrl, historyToken, row.key)
-        return {
-          sessionKey: row.key,
-          kind: row.kind ?? 'main',
-          model: row.model,
-          lastMessageAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : undefined,
-          status: row.status,
-          totalTokens: row.totalTokens,
-          recentMessages,
-        }
-      }),
+      rows.map(async (row): Promise<Session> =>
+        toSession(row, await fetchRecentMessages(gatewayUrl, historyToken, row.key)),
+      ),
     )
   } catch {
     return collectLegacyJsonlSessions(clawdDir)
