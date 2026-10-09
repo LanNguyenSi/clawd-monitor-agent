@@ -9,6 +9,7 @@ vi.mock('../collectors/cli.js', async (orig) => ({
 }))
 
 import { runOpenclaw as execSync } from '../collectors/cli.js'
+import { clearCache } from '../collectors/cache.js'
 import { collectCronJobs } from '../collectors/cron.js'
 
 // ---------------------------------------------------------------------------
@@ -24,6 +25,7 @@ const sampleJob = {
 
 describe('collectCronJobs', () => {
   beforeEach(() => {
+    clearCache()
     vi.mocked(execSync).mockReset()
   })
 

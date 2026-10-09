@@ -1,5 +1,8 @@
 import type { CronJob } from '../types.js'
 import { runOpenclaw, parseCliJson } from './cli.js'
+import { cachedCall } from './cache.js'
+
+export const CRON_CACHE_TTL_MS = 60_000
 
 interface CliCronJob {
   id: string
@@ -25,7 +28,9 @@ export async function collectCronJobs(
   _gatewayToken?: string
 ): Promise<CronJob[]> {
   try {
-    const stdout = await runOpenclaw(['cron', 'list', '--all', '--json'])
+    const stdout = await cachedCall('cron', CRON_CACHE_TTL_MS, () =>
+      runOpenclaw(['cron', 'list', '--all', '--json']),
+    )
     const data = parseCliJson<CronListResponse>(stdout)
     if (!data.jobs || !Array.isArray(data.jobs)) return []
 

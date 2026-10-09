@@ -3,6 +3,9 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { Session, SessionMessage } from '../types.js'
 import { runOpenclaw, parseCliJson } from './cli.js'
+import { cachedCall } from './cache.js'
+
+export const SESSIONS_CACHE_TTL_MS = 30_000
 
 const MAX_RECENT_MESSAGES = 5
 
@@ -182,7 +185,9 @@ export async function collectSessions(
   // config.gateway.token is forwarded to the dashboard server, this is not.
   const historyToken = gatewayToken ?? process.env.OPENCLAW_GATEWAY_TOKEN
   try {
-    const stdout = await runOpenclaw(['sessions', '--all-agents', '--json', '--limit', '20'])
+    const stdout = await cachedCall('sessions', SESSIONS_CACHE_TTL_MS, () =>
+      runOpenclaw(['sessions', '--all-agents', '--json', '--limit', '20']),
+    )
     const data = parseCliJson<CliSessionsResponse>(stdout)
     if (!Array.isArray(data.sessions)) throw new Error('unexpected sessions payload')
 

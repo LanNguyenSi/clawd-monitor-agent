@@ -11,6 +11,7 @@ vi.mock('node:fs/promises', () => ({
 }))
 
 import { runOpenclaw } from '../collectors/cli.js'
+import { clearCache } from '../collectors/cache.js'
 import { collectSessions } from '../collectors/sessions.js'
 
 const cliPayload = {
@@ -22,6 +23,7 @@ const cliPayload = {
 
 describe('collectSessions (openclaw sessions CLI)', () => {
   beforeEach(() => {
+    clearCache()
     vi.mocked(runOpenclaw).mockReset()
     vi.stubGlobal('fetch', vi.fn())
   })
@@ -79,6 +81,7 @@ describe('collectSessions (openclaw sessions CLI)', () => {
 
 describe('collectSessions history token source', () => {
   beforeEach(() => {
+    clearCache()
     vi.mocked(runOpenclaw).mockReset()
     vi.stubGlobal('fetch', vi.fn())
   })
@@ -106,6 +109,7 @@ describe('collectSessions history token source', () => {
 
 describe('collectSessions edge cases', () => {
   beforeEach(() => {
+    clearCache()
     vi.mocked(runOpenclaw).mockReset()
     vi.stubGlobal('fetch', vi.fn())
   })
