@@ -59,7 +59,7 @@ describe('collectSessions (openclaw sessions CLI)', () => {
     } as unknown as Response)
     const r = await collectSessions('http://127.0.0.1:18789/', 'tok')
     const url = vi.mocked(fetch).mock.calls[0][0] as string
-    expect(url).toBe('http://127.0.0.1:18789/sessions/agent%3Amain%3Amain/history?limit=40&includeTools=0')
+    expect(url).toBe('http://127.0.0.1:18789/sessions/agent%3Amain%3Amain/history?limit=100&includeTools=0')
     expect((vi.mocked(fetch).mock.calls[0][1] as RequestInit).headers).toEqual({ Authorization: 'Bearer tok' })
     expect(r[0].recentMessages?.map((m) => [m.role, m.content])).toEqual([['user', 'hi'], ['assistant', 'hello']])
   })
@@ -74,6 +74,33 @@ describe('collectSessions (openclaw sessions CLI)', () => {
   it('falls back to legacy JSONL (→ []) when the CLI fails', async () => {
     vi.mocked(runOpenclaw).mockRejectedValue(new Error('ENOENT'))
     expect(await collectSessions('http://gw')).toEqual([])
+  })
+})
+
+describe('collectSessions history token source', () => {
+  beforeEach(() => {
+    vi.mocked(runOpenclaw).mockReset()
+    vi.stubGlobal('fetch', vi.fn())
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  it('uses OPENCLAW_GATEWAY_TOKEN when no gateway token is passed', async () => {
+    vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', 'env-tok')
+    vi.mocked(runOpenclaw).mockResolvedValue(JSON.stringify({ sessions: [{ key: 'k' }] }))
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ items: [] }) } as unknown as Response)
+    await collectSessions('http://gw')
+    expect((vi.mocked(fetch).mock.calls[0][1] as RequestInit).headers).toEqual({ Authorization: 'Bearer env-tok' })
+  })
+
+  it('prefers an explicit token over the environment', async () => {
+    vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', 'env-tok')
+    vi.mocked(runOpenclaw).mockResolvedValue(JSON.stringify({ sessions: [{ key: 'k' }] }))
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ items: [] }) } as unknown as Response)
+    await collectSessions('http://gw', 'cfg-tok')
+    expect((vi.mocked(fetch).mock.calls[0][1] as RequestInit).headers).toEqual({ Authorization: 'Bearer cfg-tok' })
   })
 })
 

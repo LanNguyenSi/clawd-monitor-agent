@@ -141,7 +141,7 @@ export async function fetchRecentMessages(
 ): Promise<SessionMessage[]> {
   if (!gatewayToken) return []
   try {
-    const url = `${gatewayUrl.replace(/\/$/, '')}/sessions/${encodeURIComponent(sessionKey)}/history?limit=40&includeTools=0`
+    const url = `${gatewayUrl.replace(/\/$/, '')}/sessions/${encodeURIComponent(sessionKey)}/history?limit=100&includeTools=0`
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${gatewayToken}` },
       signal: AbortSignal.timeout(5_000),
@@ -171,13 +171,16 @@ export async function fetchRecentMessages(
  * Collect sessions. OpenClaw 2026.9+ stores sessions in SQLite, so the
  * supported read path is `openclaw sessions --all-agents --json`; recent
  * messages come from the Gateway HTTP history endpoint when a Gateway token
- * is available. Falls back to legacy JSONL transcripts if the CLI fails.
+ * is available (config \`gateway.token\` or the OPENCLAW_GATEWAY_TOKEN env var). Falls back to legacy JSONL transcripts if the CLI fails.
  */
 export async function collectSessions(
   gatewayUrl: string,
   gatewayToken?: string,
   clawdDir?: string
 ): Promise<Session[]> {
+  // The history token may come from the environment so it can stay on the host:
+  // config.gateway.token is forwarded to the dashboard server, this is not.
+  const historyToken = gatewayToken ?? process.env.OPENCLAW_GATEWAY_TOKEN
   try {
     const stdout = await runOpenclaw(['sessions', '--all-agents', '--json', '--limit', '20'])
     const data = parseCliJson<CliSessionsResponse>(stdout)
@@ -189,7 +192,7 @@ export async function collectSessions(
 
     return await Promise.all(
       rows.map(async (row): Promise<Session> => {
-        const recentMessages = await fetchRecentMessages(gatewayUrl, gatewayToken, row.key)
+        const recentMessages = await fetchRecentMessages(gatewayUrl, historyToken, row.key)
         return {
           sessionKey: row.key,
           kind: row.kind ?? 'main',
