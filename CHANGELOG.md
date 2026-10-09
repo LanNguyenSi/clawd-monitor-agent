@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-09
+
+Support for OpenClaw 2026.9: sessions moved to SQLite, so the JSONL reader no longer finds them.
+
+### Fixed
+
+- **Sessions are visible again on OpenClaw 2026.9+.** The agent used to read `~/.openclaw/agents/main/sessions/*.jsonl`, which is empty there. The old reader stays as the last fallback for older releases.
+- Session objects carry `status` and `totalTokens`; cron jobs carry `status`, `lastRunStatus` and `lastError`, so the dashboard shows the real state of skipped or failing jobs.
+- The cron collector no longer blocks the event loop and no longer times out after 10 s: the OpenClaw CLI takes about 3 s to start, so it runs asynchronously with a 45 s budget, and log lines before the JSON output are tolerated.
+- CLI-backed collectors share one in-flight call and cache their result (sessions 30 s, cron 60 s, failures 10 s), so slow CLI starts no longer overlap and saturate the host at a 5 s push interval.
+
 ### Changed
 
 - **Sessions and cron jobs are read from the local OpenClaw Gateway over WebSocket** (`sessions.list`, one bulk `sessions.preview`, `cron.list`; operator `read` scope only) instead of spawning the `openclaw` CLI. A call takes tens of milliseconds instead of `3 s of CPU. This needs a Gateway token: `gateway.token` in the config, or the `OPENCLAW_GATEWAY_TOKEN` environment variable (preferred: unlike `gateway.token` it is **not** forwarded to the dashboard server). Without a token, or if the Gateway is unreachable, the agent falls back to the cached CLI path and then to the legacy JSONL reader.
