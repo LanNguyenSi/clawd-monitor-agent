@@ -16,7 +16,7 @@ vi.mock('node:os', () => ({
 
 import { readdir, readFile, stat } from 'node:fs/promises'
 import type { Stats } from 'node:fs'
-import { collectSessions } from '../collectors/sessions.js'
+import { collectLegacyJsonlSessions as collectSessions } from '../collectors/sessions.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,7 +55,7 @@ describe('collectSessions', () => {
   // -------------------------------------------------------------------------
   it('returns [] when sessionsDir is unreadable', async () => {
     vi.mocked(readdir).mockRejectedValue(new Error('ENOENT'))
-    const result = await collectSessions('http://gw', undefined)
+    const result = await collectSessions('http://gw')
     expect(result).toEqual([])
   })
 

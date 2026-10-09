@@ -2,18 +2,17 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { Session, SessionMessage } from '../types.js'
+import { runOpenclaw, parseCliJson } from './cli.js'
 
 const MAX_RECENT_MESSAGES = 5
 
 /**
- * Collect sessions by reading local JSONL files.
- * The OpenClaw gateway HTTP /sessions endpoint returns the web UI (SPA catch-all),
- * so we read directly from ~/.openclaw/agents/main/sessions/*.jsonl instead.
+ * Legacy collector (OpenClaw < 2026.9): reads local JSONL transcripts from
+ * ~/.openclaw/agents/main/sessions/*.jsonl. Newer releases keep sessions in
+ * SQLite and leave this directory empty, so this is only a fallback.
  */
-export async function collectSessions(
-  _gatewayUrl: string,
-  _gatewayToken?: string,
-  clawdDir?: string
+export async function collectLegacyJsonlSessions(
+  _clawdDir?: string
 ): Promise<Session[]> {
   try {
     const base = join(homedir(), '.openclaw')
@@ -97,5 +96,112 @@ export async function collectSessions(
       .slice(0, 20)
   } catch {
     return []
+  }
+}
+
+interface CliSession {
+  key: string
+  agentId?: string
+  kind?: string
+  model?: string
+  updatedAt?: number
+  status?: string
+  totalTokens?: number
+}
+
+interface CliSessionsResponse {
+  sessions?: CliSession[]
+}
+
+interface HistoryItem {
+  role?: string
+  content?: unknown
+  timestamp?: number | string
+}
+
+function textOf(content: unknown): string {
+  if (typeof content === 'string') return content.trim()
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter((b) => (b as Record<string, unknown>)?.type === 'text')
+    .map((b) => String((b as Record<string, unknown>).text ?? ''))
+    .join('\n')
+    .trim()
+}
+
+/**
+ * Fetch the last few user/assistant messages from the local Gateway HTTP
+ * history endpoint (GET /sessions/<key>/history). Best effort: returns []
+ * when no token is configured or the Gateway is unreachable.
+ */
+export async function fetchRecentMessages(
+  gatewayUrl: string,
+  gatewayToken: string | undefined,
+  sessionKey: string,
+): Promise<SessionMessage[]> {
+  if (!gatewayToken) return []
+  try {
+    const url = `${gatewayUrl.replace(/\/$/, '')}/sessions/${encodeURIComponent(sessionKey)}/history?limit=40&includeTools=0`
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${gatewayToken}` },
+      signal: AbortSignal.timeout(5_000),
+    })
+    if (!res.ok) return []
+    const data = (await res.json()) as { items?: HistoryItem[]; messages?: HistoryItem[] }
+    const items = data.items ?? data.messages ?? []
+    const out: SessionMessage[] = []
+    for (const it of items) {
+      if (it.role !== 'user' && it.role !== 'assistant') continue
+      const content = textOf(it.content)
+      if (!content) continue
+      out.push({
+        role: it.role,
+        content: content.slice(0, 200),
+        timestamp: typeof it.timestamp === 'number' ? new Date(it.timestamp).toISOString()
+          : typeof it.timestamp === 'string' ? it.timestamp : undefined,
+      })
+    }
+    return out.slice(-MAX_RECENT_MESSAGES)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Collect sessions. OpenClaw 2026.9+ stores sessions in SQLite, so the
+ * supported read path is `openclaw sessions --all-agents --json`; recent
+ * messages come from the Gateway HTTP history endpoint when a Gateway token
+ * is available. Falls back to legacy JSONL transcripts if the CLI fails.
+ */
+export async function collectSessions(
+  gatewayUrl: string,
+  gatewayToken?: string,
+  clawdDir?: string
+): Promise<Session[]> {
+  try {
+    const stdout = await runOpenclaw(['sessions', '--all-agents', '--json', '--limit', '20'])
+    const data = parseCliJson<CliSessionsResponse>(stdout)
+    if (!Array.isArray(data.sessions)) throw new Error('unexpected sessions payload')
+
+    const rows = [...data.sessions]
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      .slice(0, 20)
+
+    return await Promise.all(
+      rows.map(async (row): Promise<Session> => {
+        const recentMessages = await fetchRecentMessages(gatewayUrl, gatewayToken, row.key)
+        return {
+          sessionKey: row.key,
+          kind: row.kind ?? 'main',
+          model: row.model,
+          lastMessageAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : undefined,
+          status: row.status,
+          totalTokens: row.totalTokens,
+          recentMessages,
+        }
+      }),
+    )
+  } catch {
+    return collectLegacyJsonlSessions(clawdDir)
   }
 }

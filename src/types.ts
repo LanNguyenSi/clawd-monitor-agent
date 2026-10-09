@@ -31,6 +31,8 @@ export interface Session {
   model?: string
   lastMessageAt?: string
   messageCount?: number
+  status?: string        // OpenClaw 2026.9+: running | idle | ...
+  totalTokens?: number
   recentMessages?: SessionMessage[]  // last N messages embedded in snapshot
 }
 
@@ -39,9 +41,12 @@ export interface CronJob {
   name?: string
   schedule: object
   enabled: boolean
+  status?: string
   state?: {
     lastRunAtMs?: number
     nextRunAtMs?: number
+    lastRunStatus?: string
+    lastError?: string
   }
 }
 
