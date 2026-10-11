@@ -30,7 +30,7 @@ flowchart LR
   end
   Dash["clawd-monitor dashboard<br/>/api/agents/ws"]
   Agent -->|"outbound WebSocket:<br/>auth, then snapshots"| Dash
-  Agent -->|"WebSocket RPC, operator.read"| GW
+  Agent -->|"WebSocket RPC, operator.read;<br/>HTTP session history"| GW
   Agent -->|fallback| OCLI
   Agent -->|"last fallback, sessions only"| JSONL
   Agent --> Proc
