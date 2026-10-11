@@ -13,8 +13,9 @@ memory-file, and Docker data and streams it over a single WebSocket
 connection that reconnects with backoff if the dashboard is unreachable.
 
 The diagram shows the local sources the agent reads, its single outbound
-connection to the dashboard, and the one call the dashboard can make back
-to the OpenClaw Gateway.
+connection to the dashboard, and the calls the dashboard can make back to
+the OpenClaw Gateway with the forwarded token (log stream, session
+history).
 
 ```mermaid
 flowchart LR
@@ -35,7 +36,7 @@ flowchart LR
   Agent --> Proc
   Agent --> Docker
   Agent --> Files
-  Dash -.->|"log stream with the forwarded gateway token,<br/>only if gateway.url is reachable from the dashboard"| GW
+  Dash -.->|"log stream and session history<br/>with the forwarded gateway token,<br/>only if gateway.url is reachable from the dashboard"| GW
 ```
 
 ## Key features
