@@ -8,9 +8,16 @@ versions (see the CHANGELOG note).
 - On connect the agent sends an `auth` message (token, agentId, name,
   version, and the gateway URL/token). The server replies `auth_ok` or
   `auth_error`. On `auth_error` the agent stops and does not reconnect.
+  The process then exits, so a systemd unit with `Restart=always` (as
+  installed) starts it again after `RestartSec`.
+- The server replies `error` to a message it cannot validate (for example
+  an `auth` with an empty `name`, or a malformed snapshot) and keeps the
+  connection open. The agent ignores `error`, so after an `auth` that fails
+  validation it stays connected without pushing.
 - After `auth_ok` the agent pushes a `snapshot` message on every interval
   (default 5s); the server may reply `ack`.
-- The agent sends a `ping` every 30s and expects a `pong`.
+- The agent sends a `ping` every 30s after `auth_ok`; the server replies
+  `pong`. The agent does not act on a missing `pong`.
 - If the connection drops, the agent reconnects with exponential backoff
   starting at 1s, doubling up to a 60s cap, reset on the next successful
   auth.
@@ -21,17 +28,17 @@ The agent maintains a single outbound WebSocket connection with an auth handshak
 
 ```mermaid
 sequenceDiagram
-    participant A as "Agent<br/>agent.ts"
-    participant S as "Server<br/>/api/agents/ws"
-    participant C as "Collectors<br/>src/collectors/index.ts"
+    participant A as Agent<br/>agent.ts
+    participant S as Server<br/>/api/agents/ws
+    participant C as Collectors<br/>src/collectors/index.ts
 
     A->>S: WS connect (ws/wss)
-    A->>S: auth {token, agentId, name, version, gatewayUrl}
+    A->>S: auth {token, agentId, name, version, gatewayUrl, gatewayToken?}
 
     alt auth_ok
         S-->>A: auth_ok
         Note over A: reconnectDelay reset to 1 s
-        loop every intervalMs (default 5 s)
+        loop immediately, then every intervalMs (default 5 s)
             A->>C: collectSnapshot(config)
             Note over C: Promise.all: collectSessions · collectCronJobs<br/>sync: collectMetrics · collectMemory · collectDocker
             C-->>A: AgentSnapshot

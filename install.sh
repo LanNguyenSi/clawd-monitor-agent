@@ -214,8 +214,9 @@ ensure_service_user
 
 # Resolve dynamic defaults *before* we go silent on the token. The token
 # itself is written to a tempfile via a heredoc and mv'd into place;
-# we never echo $ARG_TOKEN, never pass it on a command line that ps(1)
-# could expose, and never put it in `set -x` output.
+# after argument parsing we never echo $ARG_TOKEN, never pass it on a
+# command line that ps(1) could expose, and never put it in `set -x`
+# output. The installer's own argv still carries it while it runs.
 
 CONFIG_NAME="${ARG_NAME:-$(hostname)}"
 CONFIG_GATEWAY="${ARG_GATEWAY:-http://localhost:18789}"

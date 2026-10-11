@@ -8,8 +8,9 @@
 
 ## Test plan
 
+- [ ] `npm run type-check`
 - [ ] `npm run build`
-- [ ] `npm test`
+- [ ] `npm run test:coverage`
 - [ ] Dogfood: ran the agent against a real or staging dashboard
 - [ ] Manual smoke check: <!-- command or scenario -->
 
