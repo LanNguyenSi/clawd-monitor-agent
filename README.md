@@ -12,14 +12,40 @@ required on the agent host. It collects session, cron, system-metrics,
 memory-file, and Docker data and streams it over a single WebSocket
 connection that reconnects with backoff if the dashboard is unreachable.
 
+The diagram shows the local sources the agent reads, its single outbound
+connection to the dashboard, and the one call the dashboard can make back
+to the OpenClaw Gateway.
+
+```mermaid
+flowchart LR
+  subgraph Host["OpenClaw host"]
+    Agent["clawd-monitor-agent"]
+    GW["OpenClaw Gateway<br/>at gateway.url"]
+    OCLI["openclaw CLI"]
+    JSONL["legacy JSONL transcripts"]
+    Proc["/proc/stat, /proc/meminfo,<br/>/proc/uptime"]
+    Docker["docker ps -a"]
+    Files["memory files in clawd_dir"]
+  end
+  Dash["clawd-monitor dashboard<br/>/api/agents/ws"]
+  Agent -->|"outbound WebSocket:<br/>auth, then snapshots"| Dash
+  Agent -->|"WebSocket RPC, operator.read"| GW
+  Agent -->|fallback| OCLI
+  Agent -->|"last fallback, sessions only"| JSONL
+  Agent --> Proc
+  Agent --> Docker
+  Agent --> Files
+  Dash -.->|"log stream with the forwarded gateway token,<br/>only if gateway.url is reachable from the dashboard"| GW
+```
+
 ## Key features
 
-- Active OpenClaw sessions, read from local JSONL files
+- Active OpenClaw sessions, read from the local OpenClaw Gateway when a Gateway token is set, with the `openclaw` CLI and legacy JSONL transcripts as fallbacks (see [OpenClaw data sources](docs/cli-reference.md#openclaw-data-sources))
 - Scheduled cron jobs with next/last run times
 - CPU and RAM metrics via `/proc`
 - Memory files: `MEMORY.md`, `CURRENT.md`, today's and yesterday's daily log
-- Docker containers (running/stopped), state, uptime, restarts
-- Last 5 messages per session, embedded in the snapshot
+- Docker containers (running and stopped): name, image, state, time since creation
+- Last 5 messages per session, embedded in the snapshot (needs a Gateway token, except with legacy JSONL transcripts)
 - Single outbound WebSocket, no inbound ports on the agent host
 
 ## Quick start
@@ -40,6 +66,21 @@ unit. Re-running with the same args is an idempotent restart; re-running
 with a different `--token` rotates the token. The token is never echoed to
 stdout and is not embedded in the unit file. Full flag list: `bash
 install.sh --help`.
+
+The token is passed to the installer as an argument, so it is visible in
+the process list while the installer runs, and your shell may keep the
+command in its history. On a shared host, run it from a shell with history
+disabled.
+
+The installed service runs as `clawd-agent` with its home at
+`/var/lib/clawd-agent` and `ProtectHome=true`. By default it reads memory
+files from `/var/lib/clawd-agent/.openclaw/workspace`, and without a
+Gateway token its sessions and cron jobs come from the `openclaw` CLI run
+as `clawd-agent`. `--gateway-token` stores the token in the config file,
+and the agent forwards that value to the dashboard. See [Adjusting the
+installer's unit](docs/systemd-service.md#adjusting-the-installers-unit)
+to set the Gateway token or the workspace path in a way that survives
+re-running the installer.
 
 Or install the package directly:
 
