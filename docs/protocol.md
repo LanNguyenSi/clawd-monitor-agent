@@ -1,7 +1,7 @@
 # Protocol and lifecycle
 
 The agent opens a single outbound WebSocket to `<server>/api/agents/ws`
-(the `--server` URL with `http`/`https` rewritten to `ws`/`wss`). It is a
+(the `--server` URL with trailing slashes removed and `http`/`https` rewritten to `ws`/`wss`). It is a
 small JSON message protocol; it is pre-1.0 and may change between minor
 versions (see the CHANGELOG note).
 
@@ -12,8 +12,9 @@ versions (see the CHANGELOG note).
   installed) starts it again after `RestartSec`.
 - The server replies `error` to a message it cannot validate (for example
   an `auth` with an empty `name`, or a malformed snapshot) and keeps the
-  connection open. The agent ignores `error`, so after an `auth` that fails
-  validation it stays connected without pushing.
+  connection open. The agent logs every `error` at error level. An `error`
+  received before `auth_ok` is treated as a failed auth, like `auth_error`:
+  the agent stops and does not reconnect.
 - After `auth_ok` the agent pushes a `snapshot` message on every interval
   (default 5s); the server may reply `ack`.
 - The agent sends a `ping` every 30s after `auth_ok`; the server replies

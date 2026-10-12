@@ -53,7 +53,7 @@ export class Agent {
       this.ws = null
     }
 
-    const wsUrl = this.config.server.replace(/^http/, 'ws') + '/api/agents/ws'
+    const wsUrl = this.config.server.replace(/\/+$/, '').replace(/^http/, 'ws') + '/api/agents/ws'
     this.log('info', `Connecting to ${wsUrl}…`)
 
     const ws = new WebSocket(wsUrl, {
@@ -96,6 +96,14 @@ export class Agent {
         this.log('error', `Authentication failed: ${msg.message}`)
         this.stopped = true
         ws.close()
+      } else if (msg.type === 'error') {
+        this.log('error', `Server error: ${msg.message ?? 'unknown error'}`)
+        if (!this.authenticated) {
+          // An error before auth_ok means the auth message was rejected.
+          this.log('error', 'Authentication failed: server rejected the auth message')
+          this.stopped = true
+          ws.close()
+        }
       } else if (msg.type === 'pong') {
         this.log('debug', 'Pong received')
       } else if (msg.type === 'ack') {

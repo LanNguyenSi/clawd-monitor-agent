@@ -16,7 +16,10 @@ const wsFixture = vi.hoisted(() => {
     static OPEN = 1
     instanceIndex: number
 
-    constructor(_url: string, _opts?: unknown) {
+    url: string
+
+    constructor(url: string, _opts?: unknown) {
+      this.url = url
       _last = this
       _instanceCount++
       this.instanceIndex = _instanceCount
@@ -225,6 +228,56 @@ describe('Agent WebSocket client', () => {
       // Advance time: no reconnect should fire because stopped===true
       vi.advanceTimersByTime(60_000)
       expect(wsFixture.getCount()).toBe(1) // only the first ws was ever created
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Dispatch: error
+  // -------------------------------------------------------------------------
+  describe('error reply', () => {
+    it('logs the server error at error level and stays connected after auth_ok', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const agent = new Agent(makeConfig())
+      agent.start()
+      const ws = wsFixture.getLast()!
+      ws.emit('open')
+      ws.emit('message', JSON.stringify({ type: 'auth_ok' }))
+      ws.emit('message', JSON.stringify({ type: 'error', message: 'invalid snapshot' }))
+      expect(logSpy).toHaveBeenCalledWith('[clawd-agent][ERROR]', 'Server error: invalid snapshot')
+      expect(ws.close).not.toHaveBeenCalled()
+      agent.stop()
+      logSpy.mockRestore()
+    })
+
+    it('treats an error before auth_ok as failed auth: closes and does not reconnect', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const agent = new Agent(makeConfig())
+      agent.start()
+      const ws = wsFixture.getLast()!
+      ws.emit('open')
+      ws.emit('message', JSON.stringify({ type: 'error', message: 'name must not be empty' }))
+      expect(logSpy).toHaveBeenCalledWith('[clawd-agent][ERROR]', 'Server error: name must not be empty')
+      expect(ws.close).toHaveBeenCalled()
+      ws.emit('close', 1006)
+      vi.advanceTimersByTime(60_000)
+      expect(wsFixture.getCount()).toBe(1)
+      logSpy.mockRestore()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Trailing slash on server URL
+  // -------------------------------------------------------------------------
+  describe('server URL', () => {
+    it.each([
+      ['https://host', 'wss://host/api/agents/ws'],
+      ['https://host/', 'wss://host/api/agents/ws'],
+      ['http://host:9//', 'ws://host:9/api/agents/ws'],
+    ])('connects %s to %s', (server, expected) => {
+      const agent = new Agent(makeConfig({ server }))
+      agent.start()
+      expect(wsFixture.getLast()!.url).toBe(expected)
+      agent.stop()
     })
   })
 

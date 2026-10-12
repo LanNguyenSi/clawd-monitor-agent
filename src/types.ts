@@ -69,7 +69,9 @@ export interface DockerContainer {
   name: string
   image: string
   state: 'running' | 'exited' | 'paused' | 'restarting' | 'unknown'
-  restarts: number
+  /** Real restart count from `docker inspect` ({{.RestartCount}}); absent for a container whose count inspect did not return. */
+  restarts?: number
+  /** Time since the container was created (`docker ps` {{.RunningFor}}), not its uptime. */
   uptime: string
 }
 
@@ -90,6 +92,7 @@ export type WsMessage =
   | { type: 'auth'; token: string; agentId: string; name: string; version: string; gatewayUrl?: string; gatewayToken?: string }
   | { type: 'auth_ok' }
   | { type: 'auth_error'; message: string }
+  | { type: 'error'; message?: string }
   | { type: 'snapshot'; data: AgentSnapshot }
   | { type: 'ack' }
   | { type: 'ping' }
