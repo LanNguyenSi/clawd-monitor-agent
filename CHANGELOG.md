@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **A non-numeric `--interval` or `intervalMs` is now rejected.** The agent prints an error and exits with code 1 instead of pushing continuously (`abc`) or silently using 1000 (`5s`). An existing install whose config file has a malformed `intervalMs` refuses to start until it is fixed.
+- The Docker `restarts` field now holds the real restart count from one batched `docker inspect` call. It was the exit code from the `docker ps` status column. When inspect fails the field is omitted. The `uptime` field is documented as the time since creation.
+
+### Fixed
+
+- A server `error` reply is logged at error level; one received before `auth_ok` is treated as a failed auth (the agent stops instead of staying connected and silent).
+- A trailing slash on `--server` no longer produces `wss://host//api/agents/ws`.
+
 ## [0.2.0] - 2026-10-09
 
 Support for OpenClaw 2026.9: sessions moved to SQLite, so the JSONL reader no longer finds them.

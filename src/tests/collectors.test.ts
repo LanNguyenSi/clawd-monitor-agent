@@ -146,16 +146,38 @@ describe('collectDocker', () => {
     expect(collectDocker()).toEqual([])
   })
 
-  it('parses docker ps output correctly', () => {
-    vi.mocked(execSync).mockReturnValue(
-      'abc123def456\tmy-app\tnginx\tUp 2 hours (1)\trunning\t2 hours ago\n'
-    )
+  it('parses docker ps output and fills restarts from one batched docker inspect', () => {
+    vi.mocked(execSync).mockImplementation(((cmd: string) => {
+      if (cmd.startsWith('docker ps')) {
+        return 'abc123def456\tmy-app\tnginx\tExited (137) 2 hours ago\texited\t2 hours ago\n' +
+          'fff111222333\tother\tredis:7\tUp 1 hour\trunning\t1 hour ago\n'
+      }
+      return 'abc123def456' + '0'.repeat(52) + '\t3\nfff111222333' + '0'.repeat(52) + '\t0\n'
+    }) as never)
+    const result = collectDocker()
+    expect(result).toHaveLength(2)
+    expect(result[0].name).toBe('my-app')
+    expect(result[0].state).toBe('exited')
+    // exit code 137 from the Status column must not leak into restarts
+    expect(result[0].restarts).toBe(3)
+    expect(result[1].restarts).toBe(0)
+    expect(result[0].image).toBe('nginx')
+    expect(result[1].image).toBe('redis')
+    const calls = vi.mocked(execSync).mock.calls.map((c) => String(c[0]))
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toContain('{{.RestartCount}}')
+    expect(calls[1]).toContain('abc123def456 fff111222333')
+  })
+
+  it('leaves restarts undefined when docker inspect fails', () => {
+    vi.mocked(execSync).mockImplementation(((cmd: string) => {
+      if (cmd.startsWith('docker ps')) return 'abc123def456\tmy-app\tnginx\tUp (1)\trunning\t2 hours ago\n'
+      throw new Error('inspect failed')
+    }) as never)
     const result = collectDocker()
     expect(result).toHaveLength(1)
+    expect(result[0].restarts).toBeUndefined()
     expect(result[0].name).toBe('my-app')
-    expect(result[0].state).toBe('running')
-    expect(result[0].restarts).toBe(1)
-    expect(result[0].image).toBe('nginx')
   })
 
   it('handles unknown container state gracefully', () => {
@@ -177,7 +199,7 @@ describe('collectDocker', () => {
     expect(result[0].name).toBe('my-app')
     expect(result[0].image).toBe('') // parts[2] missing -> '' fallback
     expect(result[0].state).toBe('unknown') // parts[4] missing -> 'unknown' fallback, not in the state enum
-    expect(result[0].restarts).toBe(0) // parts[3] missing -> '' status -> no restart match
+    expect(result[0].restarts).toBeUndefined() // inspect returned nothing for this id
     expect(result[0].uptime).toBe('') // parts[5] missing -> '' fallback
   })
 

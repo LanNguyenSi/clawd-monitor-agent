@@ -29,6 +29,18 @@ interface CliArgs {
   debug?: boolean
 }
 
+function failInterval(source: string, value: unknown): never {
+  console.error(`Error: ${source} must be a number of milliseconds, got ${JSON.stringify(value)}`)
+  process.exit(1)
+}
+
+/** Parses an interval in ms; exits with an error for anything that is not a finite number. */
+function parseIntervalMs(source: string, value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(1000, value)
+  if (typeof value === 'string' && /^\s*\d+(\.\d+)?\s*$/.test(value)) return Math.max(1000, Number(value))
+  return failInterval(source, value)
+}
+
 export function loadConfig(args: CliArgs): AgentConfig {
   let fileConfig: Partial<AgentConfig> = {}
 
@@ -57,9 +69,11 @@ export function loadConfig(args: CliArgs): AgentConfig {
     try { return hostname() } catch { return 'unknown' }
   })()
 
-  const intervalMs = args.interval
-    ? Math.max(1000, parseInt(args.interval))
-    : Math.max(1000, fileConfig.intervalMs ?? 5000)
+  const intervalMs = args.interval !== undefined
+    ? parseIntervalMs('--interval', args.interval)
+    : fileConfig.intervalMs != null
+      ? parseIntervalMs('intervalMs in the config file', fileConfig.intervalMs)
+      : 5000
 
   return {
     server,

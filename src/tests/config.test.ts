@@ -191,6 +191,30 @@ describe('loadConfig', () => {
       const config = loadConfig({ config: 'cfg.json' })
       expect(config.intervalMs).toBe(2000)
     })
+
+    it.each(['abc', '5s', '', 'NaN', 'Infinity', '-5'])('exits with code 1 for non-numeric --interval %j', (bad) => {
+      expect(() => loadConfig({ ...VALID_ARGS, interval: bad })).toThrow('exit:1')
+    })
+
+    it.each([JSON.stringify('abc'), JSON.stringify('5s'), '{}', 'true'])(
+      'exits with code 1 for non-numeric config-file intervalMs %s',
+      (bad) => {
+        vi.mocked(readFileSync).mockImplementation((path, _enc) => {
+          const p = String(path)
+          if (p === 'cfg.json') return `{"server":"http://s","token":"t","intervalMs":${bad}}`
+          throw new Error(`Unexpected: ${p}`)
+        })
+        expect(() => loadConfig({ config: 'cfg.json' })).toThrow('exit:1')
+      }
+    )
+
+    it('accepts a numeric string in the config file', () => {
+      vi.mocked(readFileSync).mockImplementation((path, _enc) => {
+        if (String(path) === 'cfg.json') return '{"server":"http://s","token":"t","intervalMs":"3000"}'
+        throw new Error('Unexpected')
+      })
+      expect(loadConfig({ config: 'cfg.json' }).intervalMs).toBe(3000)
+    })
   })
 
   // -------------------------------------------------------------------------

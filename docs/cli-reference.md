@@ -52,13 +52,13 @@ host, not to the agent host.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--server` | none | clawd-monitor URL (required). Give the URL without a trailing slash; the agent appends `/api/agents/ws`. |
+| `--server` | none | clawd-monitor URL (required). The agent strips trailing slashes and appends `/api/agents/ws`. |
 | `--token` | none | Agent token from Settings (required) |
 | `--name` | OS hostname, or `unknown` | Display name in dashboard (uses `os.hostname()`; falls back to the literal string `unknown` if that call throws) |
 | `--gateway` | `http://localhost:18789` | OpenClaw gateway URL |
 | `--gateway-token` | none | OpenClaw gateway auth token. Enables the Gateway WebSocket collectors for sessions and cron. This value is also sent to the dashboard server in the `auth` message; prefer the `OPENCLAW_GATEWAY_TOKEN` environment variable, which is not forwarded |
 | `--clawd-dir` | `~/.openclaw/workspace` | Path to OpenClaw workspace (memory files only, see note) |
-| `--interval` | `5000` | Snapshot push interval (ms). Numeric values below 1000 are raised to 1000, whether set via `--interval` or `intervalMs` in a `--config` file. The value is not otherwise validated: a non-numeric value makes the agent push continuously. |
+| `--interval` | `5000` | Snapshot push interval (ms). Numeric values below 1000 are raised to 1000, whether set via `--interval` or `intervalMs` in a `--config` file. A non-numeric value (for example `abc` or `5s`) is rejected: the agent prints an error and exits with code 1. |
 | `--config` | none | Path to JSON config file |
 | `--no-memory` | off | Disable memory-file collection (collected by default) |
 | `--no-docker` | off | Disable Docker collection (collected by default) |
