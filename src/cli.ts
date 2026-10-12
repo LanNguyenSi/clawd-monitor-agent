@@ -18,7 +18,7 @@ Options:
   --gateway <url>          OpenClaw Gateway URL (default: http://localhost:18789)
   --gateway-token <token>  OpenClaw Gateway API token
   --clawd-dir <path>       Path to OpenClaw workspace
-  --interval <ms>          Push interval in ms, a number (default: 5000, min: 1000)
+  --interval <ms>          Push interval in ms, a number (default: 5000, min: 1000, max: 2147483647)
   --config <path>          Path to JSON config file
   --no-memory              Disable memory file collection
   --no-docker              Disable docker collection

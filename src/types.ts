@@ -69,7 +69,7 @@ export interface DockerContainer {
   name: string
   image: string
   state: 'running' | 'exited' | 'paused' | 'restarting' | 'unknown'
-  /** Real restart count from `docker inspect` ({{.RestartCount}}); absent when inspect failed. */
+  /** Real restart count from `docker inspect` ({{.RestartCount}}); absent for a container whose count inspect did not return. */
   restarts?: number
   /** Time since the container was created (`docker ps` {{.RunningFor}}), not its uptime. */
   uptime: string

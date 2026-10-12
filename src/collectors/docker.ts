@@ -3,8 +3,9 @@ import type { DockerContainer } from '../types.js'
 
 /**
  * Reads the real restart count of the given containers with one batched
- * `docker inspect` call. Returns a map from short id to count; an empty map
- * when inspect fails, so callers leave the field undefined.
+ * `docker inspect` call. Returns a map from short id to count. A container
+ * whose count inspect did not print (it vanished, or inspect failed entirely)
+ * has no entry, so callers leave its field undefined.
  */
 function collectRestartCounts(ids: string[]): Map<string, number> {
   const counts = new Map<string, number>()
@@ -30,8 +31,8 @@ function collectRestartCounts(ids: string[]): Map<string, number> {
   } catch (err) {
     // inspect exits non-zero when one id vanished but still prints the others
     const partial = (err as { stdout?: unknown }).stdout
+    // (encoding 'utf-8' makes err.stdout a string or null)
     if (typeof partial === 'string') parse(partial)
-    else if (Buffer.isBuffer(partial)) parse(partial.toString('utf-8'))
     // otherwise report no restart count rather than a made-up one
   }
   return counts
