@@ -80,7 +80,7 @@ Options:
   --name <name>            Display name in the dashboard (default: hostname)
   --gateway <url>          OpenClaw gateway URL (default: http://localhost:18789)
   --gateway-token <token>  OpenClaw gateway auth token
-  --interval <ms>          Snapshot push interval in ms, a number (default: 5000, min: 1000, max: 2147483647)
+  --interval <ms>          Snapshot push interval in ms, a whole number (default: 5000, min: 1000, max: 2147483647)
   -h, --help               Show this help
 
 Re-running the installer with the same args is a no-op restart.
@@ -103,6 +103,27 @@ done
 
 [ -n "$ARG_SERVER" ] || { print_usage >&2; fail "--server is required"; }
 [ -n "$ARG_TOKEN" ]  || { print_usage >&2; fail "--token is required"; }
+
+# Validate --interval before writing it with printf %d: a whole number of ms,
+# at most 2147483647, like the agent's own start-up check (src/config.ts),
+# which also refuses larger values (setInterval treats larger
+# delays as 1 ms); values below 1000 are raised to 1000. Leading zeros are
+# stripped before comparing, and more than 10 digits is too large without
+# relying on shell integer arithmetic.
+if [ -n "$ARG_INTERVAL" ]; then
+  case "$ARG_INTERVAL" in
+    *[!0-9]*) fail "--interval must be a whole number of ms between 1000 and 2147483647 (got: $ARG_INTERVAL)" ;;
+  esac
+  interval_digits="${ARG_INTERVAL#"${ARG_INTERVAL%%[!0]*}"}"
+  if [ "${#interval_digits}" -gt 10 ] || { [ -n "$interval_digits" ] && [ "$interval_digits" -gt 2147483647 ]; }; then
+    fail "--interval must be a whole number of ms between 1000 and 2147483647 (got: $ARG_INTERVAL)"
+  fi
+  if [ -z "$interval_digits" ] || [ "$interval_digits" -lt 1000 ]; then
+    warn "--interval $ARG_INTERVAL is below the minimum, using 1000"
+    interval_digits=1000
+  fi
+  ARG_INTERVAL="$interval_digits"
+fi
 
 # ---------------------------------------------------------------------------
 # Preflight
