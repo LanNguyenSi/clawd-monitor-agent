@@ -205,6 +205,42 @@ describe('install.sh', () => {
       expect(r.stderr).toContain('unknown argument')
     })
 
+    it('rejects a non-numeric --interval naming the bounds', () => {
+      const r = runInstall(sandbox, ['--server', 'wss://x', '--token', 't', '--interval', 'abc'])
+      expect(r.status).toBe(1)
+      expect(r.stderr).toContain('--interval must be a whole number of ms between 1000 and 2147483647 (got: abc)')
+    })
+
+    it('rejects an --interval above 2147483647 naming the bounds', () => {
+      const r = runInstall(sandbox, ['--server', 'wss://x', '--token', 't', '--interval', '3000000000'])
+      expect(r.status).toBe(1)
+      expect(r.stderr).toContain('between 1000 and 2147483647 (got: 3000000000)')
+    })
+
+    it('rejects an --interval one above the maximum and a very long digit string', () => {
+      for (const value of ['2147483648', '99999999999999999999999']) {
+        const r = runInstall(sandbox, ['--server', 'wss://x', '--token', 't', '--interval', value])
+        expect(r.status, value).toBe(1)
+        expect(r.stderr, value).toContain(`(got: ${value})`)
+      }
+    })
+
+    it('rejects a decimal or signed --interval', () => {
+      for (const value of ['5.5', '-5', '1e4']) {
+        const r = runInstall(sandbox, ['--server', 'wss://x', '--token', 't', '--interval', value])
+        expect(r.status, value).toBe(1)
+        expect(r.stderr, value).toContain(`(got: ${value})`)
+      }
+    })
+
+    it('accepts the maximum and a value below 1000 (raised with a warning) without an --interval error', () => {
+      const max = runInstall(sandbox, ['--server', 'wss://x', '--token', 't', '--interval', '2147483647'])
+      expect(max.stderr).not.toContain('--interval must be')
+      const low = runInstall(sandbox, ['--server', 'wss://x', '--token', 't', '--interval', '999'])
+      expect(low.stderr).not.toContain('--interval must be')
+      expect(low.stderr).toContain('--interval 999 is below the minimum, using 1000')
+    })
+
     it('--help prints usage and exits 0', () => {
       // --help short-circuits before the strict --server/--token check.
       const r = spawnSync('bash', [INSTALL_SH, '--help'], { encoding: 'utf-8' })
@@ -249,6 +285,17 @@ describe('install.sh', () => {
       expect(log).toContain('systemctl\tdaemon-reload')
       expect(log).toContain('systemctl\tenable clawd-monitor-agent')
       expect(log).toContain('systemctl\trestart clawd-monitor-agent')
+    })
+
+    it.skipIf(process.platform !== 'linux')('writes a valid --interval to intervalMs, leading zeros stripped', () => {
+      const r = runInstall(sandbox, [
+        '--server', 'wss://clawd-monitor.example',
+        '--token', 'super-secret-token',
+        '--interval', '0007500',
+      ])
+      expect(r.status, `stdout: ${r.stdout}\nstderr: ${r.stderr}`).toBe(0)
+      const cfg = JSON.parse(readFileSync(sandbox.configFile, 'utf-8'))
+      expect(cfg.intervalMs).toBe(7500)
     })
 
     // Linux-only for the same reason as above (install.sh:114).
