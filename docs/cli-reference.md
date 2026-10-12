@@ -58,7 +58,7 @@ host, not to the agent host.
 | `--gateway` | `http://localhost:18789` | OpenClaw gateway URL |
 | `--gateway-token` | none | OpenClaw gateway auth token. Enables the Gateway WebSocket collectors for sessions and cron. This value is also sent to the dashboard server in the `auth` message; prefer the `OPENCLAW_GATEWAY_TOKEN` environment variable, which is not forwarded |
 | `--clawd-dir` | `~/.openclaw/workspace` | Path to OpenClaw workspace (memory files only, see note) |
-| `--interval` | `5000` | Snapshot push interval (ms). Numeric values below 1000 are raised to 1000, whether set via `--interval` or `intervalMs` in a `--config` file. A non-numeric value (for example `abc` or `5s`) is rejected: the agent prints an error and exits with code 1. |
+| `--interval` | `5000` | Snapshot push interval (ms). Numeric values below 1000 are raised to 1000, whether set via `--interval` or `intervalMs` in a `--config` file. A non-numeric value (for example `abc` or `5s`) or a value above 2147483647 (the largest timer delay, beyond which the interval would fire every millisecond) is rejected: the agent prints an error and exits with code 1. |
 | `--config` | none | Path to JSON config file |
 | `--no-memory` | off | Disable memory-file collection (collected by default) |
 | `--no-docker` | off | Disable Docker collection (collected by default) |

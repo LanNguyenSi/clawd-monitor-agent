@@ -11,20 +11,28 @@ function collectRestartCounts(ids: string[]): Map<string, number> {
   // Only hex ids reach the shell command.
   const safeIds = ids.filter((id) => /^[0-9a-f]+$/i.test(id))
   if (safeIds.length === 0) return counts
-  try {
-    const out = execSync(
-      `docker inspect --format "{{.Id}}\\t{{.RestartCount}}" ${safeIds.join(' ')}`,
-      { encoding: 'utf-8', timeout: 5000 }
-    )
+  // docker inspect prints a literal backslash-t for "\\t" in --format (only
+  // `docker ps` converts it), so the fields are separated by a plain space.
+  const parse = (out: string): void => {
     for (const line of out.trim().split('\n').filter(Boolean)) {
-      const [fullId, count] = line.split('\t')
+      const [fullId, count] = line.trim().split(/\s+/)
       const n = Number(count)
-      if (fullId && count !== undefined && count.trim() !== '' && Number.isInteger(n) && n >= 0) {
+      if (fullId && count !== undefined && Number.isInteger(n) && n >= 0) {
         counts.set(fullId.slice(0, 12), n)
       }
     }
-  } catch {
-    // inspect failed: report no restart count rather than a made-up one
+  }
+  try {
+    parse(execSync(
+      `docker inspect --format "{{.Id}} {{.RestartCount}}" ${safeIds.join(' ')}`,
+      { encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] }
+    ))
+  } catch (err) {
+    // inspect exits non-zero when one id vanished but still prints the others
+    const partial = (err as { stdout?: unknown }).stdout
+    if (typeof partial === 'string') parse(partial)
+    else if (Buffer.isBuffer(partial)) parse(partial.toString('utf-8'))
+    // otherwise report no restart count rather than a made-up one
   }
   return counts
 }

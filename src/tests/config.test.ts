@@ -208,6 +208,19 @@ describe('loadConfig', () => {
       }
     )
 
+    it('accepts the maximum timer delay and rejects one above it via --interval', () => {
+      expect(loadConfig({ ...VALID_ARGS, interval: '2147483647' }).intervalMs).toBe(2147483647)
+      expect(() => loadConfig({ ...VALID_ARGS, interval: '2147483648' })).toThrow('exit:1')
+    })
+
+    it('rejects a config-file intervalMs above the maximum timer delay', () => {
+      vi.mocked(readFileSync).mockImplementation((path, _enc) => {
+        if (String(path) === 'cfg.json') return '{"server":"http://s","token":"t","intervalMs":2147483648}'
+        throw new Error('Unexpected')
+      })
+      expect(() => loadConfig({ config: 'cfg.json' })).toThrow('exit:1')
+    })
+
     it('accepts a numeric string in the config file', () => {
       vi.mocked(readFileSync).mockImplementation((path, _enc) => {
         if (String(path) === 'cfg.json') return '{"server":"http://s","token":"t","intervalMs":"3000"}'

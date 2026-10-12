@@ -146,13 +146,26 @@ describe('collectDocker', () => {
     expect(collectDocker()).toEqual([])
   })
 
+  // Emulates `docker inspect --format <tpl>`: substitutes the two fields and
+  // leaves every other character, including a backslash-t, untouched (docker
+  // inspect does not convert escapes; only `docker ps` does).
+  function emulateInspect(cmd: string, rows: Array<[string, number]>): string {
+    const tpl = /--format "([^"]*)"/.exec(cmd)?.[1] ?? ''
+    return rows
+      .map(([id, n]) => tpl.replace('{{.Id}}', id).replace('{{.RestartCount}}', String(n)))
+      .join('\n') + '\n'
+  }
+
   it('parses docker ps output and fills restarts from one batched docker inspect', () => {
     vi.mocked(execSync).mockImplementation(((cmd: string) => {
       if (cmd.startsWith('docker ps')) {
         return 'abc123def456\tmy-app\tnginx\tExited (137) 2 hours ago\texited\t2 hours ago\n' +
           'fff111222333\tother\tredis:7\tUp 1 hour\trunning\t1 hour ago\n'
       }
-      return 'abc123def456' + '0'.repeat(52) + '\t3\nfff111222333' + '0'.repeat(52) + '\t0\n'
+      return emulateInspect(cmd, [
+        ['abc123def456' + '0'.repeat(52), 3],
+        ['fff111222333' + '0'.repeat(52), 0],
+      ])
     }) as never)
     const result = collectDocker()
     expect(result).toHaveLength(2)
@@ -167,6 +180,25 @@ describe('collectDocker', () => {
     expect(calls).toHaveLength(2)
     expect(calls[1]).toContain('{{.RestartCount}}')
     expect(calls[1]).toContain('abc123def456 fff111222333')
+  })
+
+  it('keeps the counts docker inspect printed before exiting non-zero', () => {
+    vi.mocked(execSync).mockImplementation(((cmd: string) => {
+      if (cmd.startsWith('docker ps')) {
+        return 'abc123def456\tmy-app\tnginx\tUp 1 hour\trunning\t1 hour ago\n' +
+          'fff111222333\tgone\tredis\tUp 1 hour\trunning\t1 hour ago\n'
+      }
+      throw Object.assign(new Error('inspect: No such object'), {
+        status: 1,
+        stdout: emulateInspect(cmd, [['abc123def456' + '0'.repeat(52), 4]]),
+      })
+    }) as never)
+    const result = collectDocker()
+    expect(result[0].restarts).toBe(4)
+    expect(result[1].restarts).toBeUndefined()
+    // inspect's stderr must not leak into the agent's own stderr
+    const opts = vi.mocked(execSync).mock.calls[1][1] as { stdio?: unknown }
+    expect(opts.stdio).toEqual(['ignore', 'pipe', 'pipe'])
   })
 
   it('leaves restarts undefined when docker inspect fails', () => {
@@ -188,8 +220,8 @@ describe('collectDocker', () => {
 
   // ---------------------------------------------------------------------
   // A truncated docker ps line (fewer than 6 tab-separated fields) exercises
-  // the `?? ''` / `?? 'unknown'` fallback branches for statusStr, rawState,
-  // image, and uptime.
+  // the `?? ''` / `?? 'unknown'` fallback branches for rawState, image, and
+  // uptime.
   // ---------------------------------------------------------------------
   it('falls back to defaults for fields missing from a truncated docker ps line', () => {
     vi.mocked(execSync).mockReturnValue('abc123def456\tmy-app\n') // only id + name present
