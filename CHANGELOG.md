@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- `install.sh --interval` now rejects a value the agent refuses at start-up (anything but a whole number of ms, or more than 2147483647) with an error naming the bounds and exit code 1, and raises a value below 1000 to 1000 with a warning, so an install no longer writes a config that stops the agent from starting (task 1ecec58b).
+- `install.sh --interval` now accepts only a whole number of ms up to 2147483647 and otherwise exits 1 with an error naming the bounds, and raises a value below 1000 to 1000 with a warning. The agent itself refuses non-numeric and too-large values at start-up; the installer also refuses decimals because it writes the value as an integer. An install no longer writes a config that stops the agent from starting (task 1ecec58b).
 - A server `error` reply is logged at error level; one received before `auth_ok` is treated as a failed auth (the agent stops instead of staying connected and silent).
 - A trailing slash on `--server` no longer produces `wss://host//api/agents/ws`.
 

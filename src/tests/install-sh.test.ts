@@ -298,6 +298,20 @@ describe('install.sh', () => {
       expect(cfg.intervalMs).toBe(7500)
     })
 
+    it.skipIf(process.platform !== 'linux')('writes 1000 for an --interval below the minimum', () => {
+      for (const value of ['0999', '0']) {
+        rmSync(sandbox.configFile, { force: true })
+        const r = runInstall(sandbox, [
+          '--server', 'wss://clawd-monitor.example',
+          '--token', 'super-secret-token',
+          '--interval', value,
+        ])
+        expect(r.status, `${value}: stdout: ${r.stdout}\nstderr: ${r.stderr}`).toBe(0)
+        const cfg = JSON.parse(readFileSync(sandbox.configFile, 'utf-8'))
+        expect(cfg.intervalMs, value).toBe(1000)
+      }
+    })
+
     // Linux-only for the same reason as above (install.sh:114).
     it.skipIf(process.platform !== 'linux')('the unit file does NOT embed the token', () => {
       runInstall(sandbox, [
