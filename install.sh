@@ -88,14 +88,21 @@ Re-running with a different --token rotates the token cleanly.
 USAGE
 }
 
+# A value flag needs a following, non-empty argument; without one `shift 2`
+# would abort through the ERR trap instead of printing a usage error.
+need_value() {
+  [ "$2" -ge 2 ] || fail "$1 needs a value"
+  [ -n "$3" ] || fail "$1 needs a value (got an empty string)"
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --server)         ARG_SERVER="${2:-}";          shift 2 ;;
-    --token)          ARG_TOKEN="${2:-}";           shift 2 ;;
-    --name)           ARG_NAME="${2:-}";            shift 2 ;;
-    --gateway)        ARG_GATEWAY="${2:-}";         shift 2 ;;
-    --gateway-token)  ARG_GATEWAY_TOKEN="${2:-}";   shift 2 ;;
-    --interval)       ARG_INTERVAL="${2:-}";        shift 2 ;;
+    --server)         need_value "$1" "$#" "${2:-}"; ARG_SERVER="$2";         shift 2 ;;
+    --token)          need_value "$1" "$#" "${2:-}"; ARG_TOKEN="$2";          shift 2 ;;
+    --name)           need_value "$1" "$#" "${2:-}"; ARG_NAME="$2";           shift 2 ;;
+    --gateway)        need_value "$1" "$#" "${2:-}"; ARG_GATEWAY="$2";        shift 2 ;;
+    --gateway-token)  need_value "$1" "$#" "${2:-}"; ARG_GATEWAY_TOKEN="$2";  shift 2 ;;
+    --interval)       need_value "$1" "$#" "${2:-}"; ARG_INTERVAL="$2";       shift 2 ;;
     -h|--help)        print_usage; exit 0 ;;
     *)                fail "unknown argument: $1 (run with --help)" ;;
   esac

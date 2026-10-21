@@ -146,10 +146,14 @@ describe('collectDocker', () => {
     expect(collectDocker()).toEqual([])
   })
 
-  // Emulates `docker inspect --format <tpl>`: substitutes the two fields and
+  // Emulates `docker inspect --type container --format <tpl>`: substitutes the two fields and
   // leaves every other character, including a backslash-t, untouched (docker
   // inspect does not convert escapes; only `docker ps` does).
   function emulateInspect(cmd: string, rows: Array<[string, number]>): string {
+    // Without --type container docker may resolve a non-container object with a matching id prefix.
+    if (!cmd.startsWith('docker inspect --type container --format ')) {
+      throw new Error(`inspect must restrict the object type: ${cmd}`)
+    }
     const tpl = /--format "([^"]*)"/.exec(cmd)?.[1] ?? ''
     return rows
       .map(([id, n]) => tpl.replace('{{.Id}}', id).replace('{{.RestartCount}}', String(n)))

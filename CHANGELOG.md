@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - `install.sh --interval` now accepts only a whole number of ms up to 2147483647 and otherwise exits 1 with an error naming the bounds, and raises a value below 1000 to 1000 with a warning. The agent itself refuses non-numeric and too-large values at start-up; the installer also refuses decimals because it writes the value as an integer. An install no longer writes a config that stops the agent from starting (task 1ecec58b).
+- `install.sh` now exits 1 with `<flag> needs a value` when a value flag (`--server`, `--token`, `--name`, `--gateway`, `--gateway-token`, `--interval`) has no following argument or an empty one, instead of aborting through the ERR trap or silently using the default.
+- The Docker collector runs `docker inspect --type container`, so an id prefix can no longer resolve a non-container object.
 - A server `error` reply is logged at error level; one received before `auth_ok` is treated as a failed auth (the agent stops instead of staying connected and silent).
 - A trailing slash on `--server` no longer produces `wss://host//api/agents/ws`.
 
