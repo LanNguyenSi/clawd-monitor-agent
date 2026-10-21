@@ -241,6 +241,24 @@ describe('install.sh', () => {
       expect(low.stderr).toContain('--interval 999 is below the minimum, using 1000')
     })
 
+    it('a trailing value flag without a value is a usage error, not an ERR-trap abort', () => {
+      for (const flag of ['--interval', '--name']) {
+        const r = runInstall(sandbox, ['--server', 'wss://x', '--token', 't', flag])
+        expect(r.status, flag).toBe(1)
+        expect(r.stderr, flag).toContain(`${flag} needs a value`)
+        expect(r.stderr, flag).not.toContain('installer aborted')
+        expect(r.stderr, flag).not.toContain('empty string')
+      }
+    })
+
+    it('an explicitly empty value is an error for --interval and one other value flag', () => {
+      for (const flag of ['--interval', '--name']) {
+        const r = runInstall(sandbox, ['--server', 'wss://x', '--token', 't', flag, ''])
+        expect(r.status, flag).toBe(1)
+        expect(r.stderr, flag).toContain(`${flag} needs a value (got an empty string)`)
+      }
+    })
+
     it('--help prints usage and exits 0', () => {
       // --help short-circuits before the strict --server/--token check.
       const r = spawnSync('bash', [INSTALL_SH, '--help'], { encoding: 'utf-8' })
