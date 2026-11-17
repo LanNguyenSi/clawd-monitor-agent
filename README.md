@@ -61,7 +61,10 @@ curl -fsSL https://raw.githubusercontent.com/LanNguyenSi/clawd-monitor-agent/mas
 unset CLAWD_AGENT_TOKEN
 ```
 
-Paste the token from Settings -> Agent Tokens at the prompt. Installs Node
+Paste the token from Settings -> Agent Tokens at the prompt. If `sudo`
+answers "not allowed to set the following environment variables" (a
+restricted sudoers), run the `curl ... | bash -s -- ...` line from a root
+shell without `sudo`, or use `--token-file <path>`. Installs Node
 18+ (via NodeSource if needed), the `clawd-monitor-agent` npm package, a
 dedicated `clawd-agent` system user, a config at
 `/etc/clawd-monitor-agent/config.json` (mode 0640), the token in its own
@@ -138,9 +141,13 @@ changing the token and with only the restart's reconnect as downtime:
 
 1. `npm install -g clawd-monitor-agent@latest` (the running agent is not
    affected).
-2. Create the file and put the token in it:
-   `sudo install -m 600 -o clawd-agent /dev/null /etc/clawd-monitor-agent/token`,
-   then write the token into it (for example with `sudoedit`).
+2. Create the file and put the token in it. The owner is the user in the
+   unit's `User=` (`clawd-agent` for an installer-made unit), and the
+   directory must exist first, or pick a path that user owns:
+   `sudo install -d -m 0750 -o root -g clawd-agent /etc/clawd-monitor-agent`
+   (skip it if the installer made the directory), then
+   `sudo install -m 600 -o clawd-agent /dev/null /etc/clawd-monitor-agent/token`
+   and write the token into it (for example with `sudoedit`).
 3. In the unit, replace `--token <value>` with `--token-file
    /etc/clawd-monitor-agent/token` (use `systemctl edit` for a drop-in).
 4. `sudo systemctl daemon-reload && sudo systemctl restart clawd-monitor-agent`.

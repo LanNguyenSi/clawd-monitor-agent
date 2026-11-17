@@ -519,6 +519,43 @@ describe('install.sh', () => {
       }
     })
 
+    // Order of the writes: a failure after the token file and the unit, at the
+    // config step, must leave a host that still boots. A `mv` stub that refuses
+    // to replace config.json simulates it.
+    describe('a failure while replacing config.json', () => {
+      beforeEach(() => {
+        writeStub(sandbox, 'mv', {
+          extraScript: `
+for last in "$@"; do :; done
+case "$last" in */config.json) echo "mv: simulated failure" >&2; exit 1 ;; esac
+exec /bin/mv "$@"
+`,
+        })
+        mkdirSync(sandbox.configDir, { recursive: true })
+        writeFileSync(sandbox.configFile, JSON.stringify({ server: 'wss://x', token: 'old-token' }))
+        mkdirSync(join(sandbox.dir, 'etc', 'systemd', 'system'), { recursive: true })
+        writeFileSync(sandbox.serviceFile, `[Service]\nExecStart=/usr/bin/clawd-monitor-agent --config ${sandbox.configFile}\n`)
+      })
+
+      it('leaves the new unit pointing at a token file that already holds the new token (token-file layout)', () => {
+        const r = runInstall(sandbox, SERVER, { [ENV]: 'new-token' })
+        expect(r.status).not.toBe(0)
+        expect(readFileSync(sandbox.tokenFile, 'utf-8').trim()).toBe('new-token')
+        expect(readFileSync(sandbox.serviceFile, 'utf-8')).toContain(`--token-file ${sandbox.tokenFile}`)
+        // config.json is the old one: still has a token, so the old unit would boot too.
+        expect(JSON.parse(readFileSync(sandbox.configFile, 'utf-8')).token).toBe('old-token')
+      })
+
+      it('keeps the earlier token file while the config is not replaced yet (older agent layout)', () => {
+        writeStub(sandbox, 'clawd-monitor-agent', { stdout: AGENT_HELP_WITHOUT_TOKEN_FILE })
+        writeFileSync(sandbox.tokenFile, 'earlier-token\n')
+        const r = runInstall(sandbox, SERVER, { [ENV]: 'new-token' })
+        expect(r.status).not.toBe(0)
+        expect(readFileSync(sandbox.tokenFile, 'utf-8').trim()).toBe('earlier-token')
+        expect(JSON.parse(readFileSync(sandbox.configFile, 'utf-8')).token).toBe('old-token')
+      })
+    })
+
     // Compatibility: the installer is served from master, the agent package is
     // released separately, so an agent without --token-file must still install.
     describe('an installed agent that predates --token-file', () => {

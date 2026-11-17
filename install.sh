@@ -385,8 +385,6 @@ write_config() {
   mv -f "$tmpfile" "$CONFIG_FILE"
 }
 
-write_config
-
 # The token lives in its own file, mode 0600 and owned by the service user,
 # and the unit points the agent at it with --token-file. config.json then holds
 # no secret except an optional gateway token.
@@ -410,8 +408,6 @@ write_token_file() {
   printf '%s\n' "$AGENT_TOKEN" > "$tmpfile"
   mv -f "$tmpfile" "$TOKEN_FILE"
 }
-
-write_token_file
 
 # ---------------------------------------------------------------------------
 # systemd unit
@@ -460,7 +456,21 @@ UNIT
   chmod 0644 "$SERVICE_FILE"
 }
 
-write_unit
+# Order matters: a failure between two of these steps must leave a host that
+# still boots. With --token-file the token file comes first, then the unit that
+# reads it, and config.json (which no longer holds the token) last: the old unit
+# with the old config, and the new unit with the old config, both start. With
+# the older agent the config (which holds the token) comes first, then the
+# unit, and the token file of an earlier install is removed last.
+if [ "$TOKEN_LAYOUT" = "file" ]; then
+  write_token_file
+  write_unit
+  write_config
+else
+  write_config
+  write_unit
+  write_token_file
+fi
 
 # ---------------------------------------------------------------------------
 # Activate

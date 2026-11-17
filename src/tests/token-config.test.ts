@@ -99,6 +99,28 @@ describe('loadConfig token sources', () => {
     expect(process.env[TOKEN_ENV_VAR]).toBeUndefined()
   })
 
+  it('removes the variable from the process environment when --token-file wins over it', () => {
+    writeConfig()
+    process.env[TOKEN_ENV_VAR] = 'env-token'
+    expect(loadConfig({ config: cfgPath, 'token-file': tokenFile('file-token') }).token).toBe('file-token')
+    expect(process.env[TOKEN_ENV_VAR]).toBeUndefined()
+  })
+
+  it('removes a blank variable from the process environment when --token wins', () => {
+    // The variable never wins against --token unless it is blank; it is still removed.
+    writeConfig()
+    process.env[TOKEN_ENV_VAR] = '  '
+    expect(loadConfig({ config: cfgPath, token: 'flag-token' }).token).toBe('flag-token')
+    expect(process.env[TOKEN_ENV_VAR]).toBeUndefined()
+  })
+
+  it('removes the variable from the process environment when the config file token is used', () => {
+    writeConfig({ token: 'config-token' })
+    process.env[TOKEN_ENV_VAR] = ''
+    expect(loadConfig({ config: cfgPath }).token).toBe('config-token')
+    expect(process.env[TOKEN_ENV_VAR]).toBeUndefined()
+  })
+
   it('leaves an injected environment object alone', () => {
     writeConfig()
     const env = { [TOKEN_ENV_VAR]: 'env-token' }
