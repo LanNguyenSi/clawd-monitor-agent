@@ -119,6 +119,55 @@ describe('parseArgs', () => {
     expect(result['gateway-token']).toBeUndefined()
   })
 
+  // -------------------------------------------------------------------------
+  // --token-file / --gateway-token-file without a value → exit(1)
+  // -------------------------------------------------------------------------
+  const expectMissingValueExit = (argv: string[], flag: string) => {
+    process.argv = ['node', 'cli', ...argv]
+    const errors: string[] = []
+    const err = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { errors.push(a.join(' ')) })
+    try {
+      expect(() => parseArgs()).toThrow('exit:1')
+    } finally {
+      err.mockRestore()
+    }
+    expect(errors.join('\n')).toContain(flag)
+  }
+
+  it('exits 1 when --token-file is the last argument', () => {
+    expectMissingValueExit(['--server', 'http://s', '--token-file'], '--token-file')
+  })
+
+  it('exits 1 when --token-file is followed by another flag', () => {
+    expectMissingValueExit(['--token-file', '--server', 'http://s'], '--token-file')
+  })
+
+  it('exits 1 when --gateway-token-file is the last argument', () => {
+    expectMissingValueExit(['--server', 'http://s', '--gateway-token-file'], '--gateway-token-file')
+  })
+
+  it('exits 1 when --gateway-token-file is followed by another flag', () => {
+    expectMissingValueExit(['--gateway-token-file', '--debug'], '--gateway-token-file')
+  })
+
+  it('exits 1 for --token-file with an empty-string value', () => {
+    expectMissingValueExit(['--server', 'http://s', '--token-file', ''], '--token-file')
+  })
+
+  it('still parses a path value for --token-file and --gateway-token-file', () => {
+    process.argv = ['node', 'cli', '--token-file', '/etc/cma/token', '--gateway-token-file', '/etc/cma/gateway-token']
+    const result = parseArgs()
+    expect(result['token-file']).toBe('/etc/cma/token')
+    expect(result['gateway-token-file']).toBe('/etc/cma/gateway-token')
+  })
+
+  it('takes a value that starts with a single dash as the path', () => {
+    process.argv = ['node', 'cli', '--token-file', '-h', '--gateway-token-file', '-tok']
+    const result = parseArgs()
+    expect(result['token-file']).toBe('-h')
+    expect(result['gateway-token-file']).toBe('-tok')
+  })
+
   it('--help lists --gateway-token-file, marks --gateway-token deprecated and states the Gateway token precedence', () => {
     const lines: string[] = []
     const log = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { lines.push(a.join(' ')) })

@@ -49,6 +49,17 @@ export function parseArgs(): Record<string, string | boolean> {
     if (arg === '--no-docker') { result.docker = false; continue }
     if (arg === '--debug') { result.debug = true; continue }
 
+    if (arg === '--token-file' || arg === '--gateway-token-file') {
+      const hasValue = i + 1 < args.length && !args[i + 1].startsWith('--')
+      const value = hasValue ? args[++i] : ''
+      if (!hasValue || value === '') {
+        console.error(`Error: ${arg} needs a path`)
+        process.exit(1)
+      }
+      result[arg.slice(2)] = value
+      continue
+    }
+
     if (arg.startsWith('--') && i + 1 < args.length && !args[i + 1].startsWith('--')) {
       result[arg.slice(2)] = args[++i]
     }
