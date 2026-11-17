@@ -556,6 +556,32 @@ exec /bin/mv "$@"
       })
     })
 
+    describe('a failure while replacing config.json, previous install in the token-file layout, older agent now', () => {
+      it('leaves the previous unit (with --token-file) and the token file untouched', () => {
+        writeStub(sandbox, 'mv', {
+          extraScript: `
+for last in "$@"; do :; done
+case "$last" in */config.json) echo "mv: simulated failure" >&2; exit 1 ;; esac
+exec /bin/mv "$@"
+`,
+        })
+        writeStub(sandbox, 'clawd-monitor-agent', { stdout: AGENT_HELP_WITHOUT_TOKEN_FILE })
+        const previousUnit = `[Service]\nExecStart=/usr/bin/clawd-monitor-agent --config ${sandbox.configFile} --token-file ${sandbox.tokenFile}\n`
+        mkdirSync(sandbox.configDir, { recursive: true })
+        writeFileSync(sandbox.configFile, JSON.stringify({ server: 'wss://x' }))
+        writeFileSync(sandbox.tokenFile, 'previous-token\n')
+        mkdirSync(join(sandbox.dir, 'etc', 'systemd', 'system'), { recursive: true })
+        writeFileSync(sandbox.serviceFile, previousUnit)
+
+        const r = runInstall(sandbox, SERVER, { [ENV]: 'new-token' })
+        expect(r.status).not.toBe(0)
+        // The config (no token) was not replaced, so the unit must still read the token file.
+        expect(readFileSync(sandbox.serviceFile, 'utf-8')).toBe(previousUnit)
+        expect(readFileSync(sandbox.tokenFile, 'utf-8').trim()).toBe('previous-token')
+        expect(JSON.parse(readFileSync(sandbox.configFile, 'utf-8')).token).toBeUndefined()
+      })
+    })
+
     // Compatibility: the installer is served from master, the agent package is
     // released separately, so an agent without --token-file must still install.
     describe('an installed agent that predates --token-file', () => {
