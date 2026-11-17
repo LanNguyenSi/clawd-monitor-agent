@@ -105,6 +105,13 @@ describe('parseArgs', () => {
     expect(result.token).toBe('my-tok')
   })
 
+  it('parses --token-file as its own key, separate from --token', () => {
+    process.argv = ['node', 'cli', '--server', 'http://s', '--token-file', '/etc/clawd-monitor-agent/token']
+    const result = parseArgs()
+    expect(result['token-file']).toBe('/etc/clawd-monitor-agent/token')
+    expect(result.token).toBeUndefined()
+  })
+
   // -------------------------------------------------------------------------
   // Lookahead skips when next arg starts with --
   // -------------------------------------------------------------------------

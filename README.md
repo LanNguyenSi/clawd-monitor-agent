@@ -54,24 +54,35 @@ flowchart LR
 Requires Node.js 18+ (installer handles this on Debian/Ubuntu).
 
 ```bash
+printf 'Agent token: '; read -rs CLAWD_AGENT_TOKEN; echo; export CLAWD_AGENT_TOKEN
 curl -fsSL https://raw.githubusercontent.com/LanNguyenSi/clawd-monitor-agent/master/install.sh \
-  | sudo bash -s -- \
-      --server wss://your-clawd-monitor-domain \
-      --token <agent-token-from-settings>
+  | sudo --preserve-env=CLAWD_AGENT_TOKEN bash -s -- \
+      --server wss://your-clawd-monitor-domain
+unset CLAWD_AGENT_TOKEN
 ```
 
-Installs Node 18+ (via NodeSource if needed), the `clawd-monitor-agent`
-npm package, a dedicated `clawd-agent` system user, a config at
-`/etc/clawd-monitor-agent/config.json` (mode 0640), and a hardened systemd
-unit. Re-running with the same args is an idempotent restart; re-running
-with a different `--token` rotates the token. The token is never echoed to
-stdout and is not embedded in the unit file. Full flag list: `bash
-install.sh --help`.
+Paste the token from Settings -> Agent Tokens at the prompt. Installs Node
+18+ (via NodeSource if needed), the `clawd-monitor-agent` npm package, a
+dedicated `clawd-agent` system user, a config at
+`/etc/clawd-monitor-agent/config.json` (mode 0640), the token in its own
+file `/etc/clawd-monitor-agent/token` (mode 0600, owned by `clawd-agent`),
+and a hardened systemd unit that starts the agent with `--token-file`.
+Re-running with the same args is an idempotent restart; re-running with a
+different token rotates it. The token is never echoed to stdout and is not
+embedded in the unit file. Full flag list: `bash install.sh --help`.
 
-The token is passed to the installer as an argument, so it is visible in
-the process list while the installer runs, and your shell may keep the
-command in its history. On a shared host, run it from a shell with history
-disabled.
+The installer takes the token from the first of these that is set:
+`--token-file <path>`, the `CLAWD_AGENT_TOKEN` environment variable,
+`--token <value>`. The `--token` flag still works but is deprecated: its
+value is visible in the process list (`ps`, `/proc/<pid>/cmdline`) for as
+long as the installer runs, and the installer prints a warning. The
+environment variable is not part of any command line; it is readable only
+by root and the installing user (`/proc/<pid>/environ`), the installer
+unsets it before it starts npm or apt, and the prompt above keeps it out of
+the shell history too. The dashboard's "+ Add Agent" snippet sets the
+variable inline (`CLAWD_AGENT_TOKEN='...' sudo ...`), which keeps the token
+out of `ps` but leaves it in your shell history; use the prompt above, or
+start the command with a space if your shell has `HISTCONTROL=ignorespace`.
 
 The installed service runs as `clawd-agent` with its home at
 `/var/lib/clawd-agent` and `ProtectHome=true`. By default it reads memory
@@ -96,15 +107,47 @@ Settings -> Agent Tokens.
 ## Usage
 
 ```bash
+install -m 600 /dev/null ~/.clawd-agent-token     # then put the token in it
 clawd-monitor-agent \
   --server https://your-clawd-monitor-domain \
-  --token <agent-token-from-settings> \
+  --token-file ~/.clawd-agent-token \
   --name "My OpenClaw Host" \
   --gateway http://localhost:18789
 ```
 
+The agent reads the token from the first of these that is set:
+`--token-file <path>` (mode 0600; it refuses a file other users can read
+and warns about group access), the `CLAWD_AGENT_TOKEN` environment
+variable, `--token <value>`, the `token` key of a `--config` file. Do not
+pass the token with `--token`: the value stays in the process list for as
+long as the agent runs, so any local user can read it with `ps` and use it
+to connect as your agent. The flag still works for existing installs and
+prints a deprecation warning on stderr.
+
 See [docs/cli-reference.md](docs/cli-reference.md) for every flag and the
 JSON config-file format.
+
+### Upgrading an install that uses `--token`
+
+Hosts set up with `install.sh` before this change keep working as they are:
+their unit never carried the token, it reads it from `config.json`. Re-run
+the installer to move the token into its own file (it restarts the service
+once). A host that runs the agent with `--token <value>` in its own unit or
+start script, the form this README used to show, moves like this, without
+changing the token and with only the restart's reconnect as downtime:
+
+1. `npm install -g clawd-monitor-agent@latest` (the running agent is not
+   affected).
+2. Create the file and put the token in it:
+   `sudo install -m 600 -o clawd-agent /dev/null /etc/clawd-monitor-agent/token`,
+   then write the token into it (for example with `sudoedit`).
+3. In the unit, replace `--token <value>` with `--token-file
+   /etc/clawd-monitor-agent/token` (use `systemctl edit` for a drop-in).
+4. `sudo systemctl daemon-reload && sudo systemctl restart clawd-monitor-agent`.
+
+The old value was readable in the process list while it ran. If other
+users share the host, rotate it: create a new token in the dashboard, put
+it in the file, restart, then revoke the old one in Settings.
 
 ## Documentation
 

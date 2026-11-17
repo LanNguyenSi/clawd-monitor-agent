@@ -9,11 +9,12 @@ clawd-monitor-agent v${VERSION}
 Lightweight agent that pushes OpenClaw instance data to clawd-monitor.
 
 Usage:
-  clawd-monitor-agent --server <url> --token <token> [options]
+  clawd-monitor-agent --server <url> --token-file <path> [options]
 
 Options:
   --server <url>           clawd-monitor server URL (required)
-  --token <token>          Agent authentication token (required)
+  --token-file <path>      File holding the agent token (mode 600; recommended)
+  --token <token>          Agent token on the command line (deprecated: visible in ps)
   --name <name>            Agent display name (default: hostname)
   --gateway <url>          OpenClaw Gateway URL (default: http://localhost:18789)
   --gateway-token <token>  OpenClaw Gateway API token
@@ -25,6 +26,9 @@ Options:
   --debug                  Enable debug logging
   --version                Show version
   --help                   Show this help
+
+The agent token comes from the first of these that is set: --token-file,
+the CLAWD_AGENT_TOKEN environment variable, --token, "token" in --config.
 `)
 }
 

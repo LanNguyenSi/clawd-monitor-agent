@@ -54,15 +54,29 @@ and keep it readable only by root and the service user, for example
 (the installer does the same for its service user; use the group of
 whichever user you set in `User=`).
 
-The agent reads its dashboard token only from `--token` or the `--config`
-file, never from the environment, so an `EnvironmentFile=` cannot supply
-it unless you reference it as `--token ${VAR}` in
-`ExecStart`, and systemd expands `${VAR}` into the process argv before
-exec, so the token would still end up visible in the process list. Use
-the config file instead: it keeps the token out of `systemctl status`
-and `ps`. Passing `--token` directly on the command line, by contrast,
-is visible in `ps` output and in the process command line that
-`systemctl status` shows.
+Keep the dashboard token out of the command line. Put it in a file that
+only the service user can read and point the agent at it with
+`--token-file`, as the installer's unit does:
+
+```bash
+install -m 600 -o clawd-agent /dev/null /etc/clawd-monitor-agent/token
+# write the token into it, for example with sudoedit
+```
+
+and in the unit:
+
+```ini
+ExecStart=/usr/bin/clawd-monitor-agent --config /etc/clawd-monitor-agent/config.json --token-file /etc/clawd-monitor-agent/token
+```
+
+The agent also reads the token from the `CLAWD_AGENT_TOKEN` environment
+variable, so an `EnvironmentFile=` (mode 0600) works too. Do not reference
+it as `--token ${VAR}` in `ExecStart`: systemd expands `${VAR}` into the
+process argv before exec, so the token would be visible in the process
+list. The `token` key of the config file still works as well. Passing
+`--token` directly on the command line is deprecated: it is visible in
+`ps` output and in the process command line that `systemctl status` shows.
+See [Agent token](cli-reference.md#agent-token) for the precedence.
 
 The OpenClaw Gateway token is different. The agent reads
 `OPENCLAW_GATEWAY_TOKEN` from its environment and does not forward it to
@@ -79,9 +93,10 @@ systemctl enable --now clawd-monitor-agent
 
 ## Adjusting the installer's unit
 
-The installer writes `/etc/systemd/system/clawd-monitor-agent.service` and
-`/etc/clawd-monitor-agent/config.json` from scratch on every run, so edits
-to either file are lost when you re-run it. Its unit runs the agent as
+The installer writes `/etc/systemd/system/clawd-monitor-agent.service`,
+`/etc/clawd-monitor-agent/config.json` and the token file
+`/etc/clawd-monitor-agent/token` from scratch on every run, so edits to
+any of them are lost when you re-run it. Its unit runs the agent as
 `clawd-agent` with `HOME=/var/lib/clawd-agent`, `ProtectSystem=strict`,
 `ProtectHome=true` and `ReadWritePaths=/var/lib/clawd-agent`, and the
 installer has no flag for the workspace path. To change the unit in a way
@@ -110,7 +125,7 @@ For example:
 [Service]
 EnvironmentFile=/etc/clawd-monitor-agent/openclaw.env
 ExecStart=
-ExecStart=/usr/bin/clawd-monitor-agent --config /etc/clawd-monitor-agent/config.json --clawd-dir /srv/openclaw/workspace
+ExecStart=/usr/bin/clawd-monitor-agent --config /etc/clawd-monitor-agent/config.json --token-file /etc/clawd-monitor-agent/token --clawd-dir /srv/openclaw/workspace
 ```
 
 Then restart the service with `systemctl restart clawd-monitor-agent`.

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, chmodSync, existsSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, chmodSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -20,6 +20,7 @@ interface Sandbox {
   stubLog: string
   configDir: string
   configFile: string
+  tokenFile: string
   serviceFile: string
   serviceHome: string
   systemdProbe: string
@@ -47,6 +48,7 @@ function makeSandbox(): Sandbox {
     stubLog: join(dir, 'stub.log'),
     configDir,
     configFile: join(configDir, 'config.json'),
+    tokenFile: join(configDir, 'token'),
     serviceFile,
     serviceHome,
     systemdProbe,
@@ -134,9 +136,14 @@ exec /usr/bin/install "\${args[@]}"
 `,
   })
   // The install.sh resolves \`command -v clawd-monitor-agent\` after npm
-  // returns; we provide a dummy on PATH so that succeeds.
-  writeStub(sandbox, 'clawd-monitor-agent')
+  // returns; we provide a dummy on PATH so that succeeds. Its --help
+  // output decides whether the installer treats it as an agent that
+  // supports --token-file.
+  writeStub(sandbox, 'clawd-monitor-agent', { stdout: AGENT_HELP_WITH_TOKEN_FILE })
 }
+
+const AGENT_HELP_WITH_TOKEN_FILE = 'Options:\n  --token-file <path>  File holding the agent token\n  --token <token>      deprecated\n'
+const AGENT_HELP_WITHOUT_TOKEN_FILE = 'Options:\n  --token <token>      Agent authentication token (required)\n'
 
 function runInstall(
   sandbox: Sandbox,
@@ -196,7 +203,7 @@ describe('install.sh', () => {
     it('exits non-zero with an error when --token is missing', () => {
       const r = runInstall(sandbox, ['--server', 'wss://example'])
       expect(r.status).not.toBe(0)
-      expect(r.stderr).toContain('--token is required')
+      expect(r.stderr).toContain('an agent token is required')
     })
 
     it('rejects unknown flags with a clear message', () => {
@@ -280,11 +287,12 @@ describe('install.sh', () => {
       ])
       expect(r.status, `stdout: ${r.stdout}\nstderr: ${r.stderr}`).toBe(0)
 
-      // Config file written with token.
+      // Config file written; the token is in its own file, not in the config.
       expect(existsSync(sandbox.configFile)).toBe(true)
       const cfg = JSON.parse(readFileSync(sandbox.configFile, 'utf-8'))
       expect(cfg.server).toBe('wss://clawd-monitor.example')
-      expect(cfg.token).toBe('super-secret-token')
+      expect(cfg.token).toBeUndefined()
+      expect(readFileSync(sandbox.tokenFile, 'utf-8')).toBe('super-secret-token\n')
       expect(cfg.name).toBe('my-vps-01')
       expect(cfg.gateway.url).toBe('http://localhost:18789')
 
@@ -292,7 +300,9 @@ describe('install.sh', () => {
       expect(existsSync(sandbox.serviceFile)).toBe(true)
       const unit = readFileSync(sandbox.serviceFile, 'utf-8')
       expect(unit).toContain('User=clawd-agent')
-      expect(unit).toContain(`ExecStart=${sandbox.stubsDir}/clawd-monitor-agent --config ${sandbox.configFile}`)
+      expect(unit).toContain(
+        `ExecStart=${sandbox.stubsDir}/clawd-monitor-agent --config ${sandbox.configFile} --token-file ${sandbox.tokenFile}\n`,
+      )
       expect(unit).toContain('Restart=always')
       // Hardening flags must be present.
       expect(unit).toContain('NoNewPrivileges=true')
@@ -374,14 +384,164 @@ describe('install.sh', () => {
       expect(restarts.length).toBe(2)
     })
 
-    it('re-running with a different --token rotates the token in the config', () => {
+    it('re-running with a different --token rotates the token in the token file', () => {
       runInstall(sandbox, ['--server', 'wss://x', '--token', 'token-A'])
-      let cfg = JSON.parse(readFileSync(sandbox.configFile, 'utf-8'))
-      expect(cfg.token).toBe('token-A')
+      expect(readFileSync(sandbox.tokenFile, 'utf-8')).toBe('token-A\n')
 
       runInstall(sandbox, ['--server', 'wss://x', '--token', 'token-B'])
-      cfg = JSON.parse(readFileSync(sandbox.configFile, 'utf-8'))
-      expect(cfg.token).toBe('token-B')
+      expect(readFileSync(sandbox.tokenFile, 'utf-8')).toBe('token-B\n')
+    })
+  })
+
+  // Every case runs the installer to completion, which install.sh gates on
+  // `uname -s = Linux` (see above).
+  describe.skipIf(process.platform !== 'linux')('token input', () => {
+    const SERVER = ['--server', 'wss://x']
+    const ENV = 'CLAWD_AGENT_TOKEN'
+
+    function writeTokenFile(content: string, mode = 0o600): string {
+      const p = join(sandbox.dir, 'supplied-token')
+      writeFileSync(p, content)
+      chmodSync(p, mode)
+      return p
+    }
+    const stored = () => readFileSync(sandbox.tokenFile, 'utf-8').trim()
+
+    // Each source alone.
+    it('takes the token from --token-file alone', () => {
+      const r = runInstall(sandbox, [...SERVER, '--token-file', writeTokenFile('from-file\n')])
+      expect(r.status, r.stderr).toBe(0)
+      expect(stored()).toBe('from-file')
+      expect(r.stderr).not.toContain('deprecated')
+    })
+    it('takes the token from the environment variable alone', () => {
+      const r = runInstall(sandbox, SERVER, { [ENV]: 'from-env' })
+      expect(r.status, r.stderr).toBe(0)
+      expect(stored()).toBe('from-env')
+      expect(r.stderr).not.toContain('deprecated')
+    })
+    it('takes the token from --token alone, with a deprecation warning', () => {
+      const r = runInstall(sandbox, [...SERVER, '--token', 'from-flag'])
+      expect(r.status, r.stderr).toBe(0)
+      expect(stored()).toBe('from-flag')
+      expect(r.stderr).toContain('--token is deprecated')
+      expect(r.stderr).not.toContain('from-flag')
+    })
+
+    // Several together: the higher one wins.
+    it('--token-file beats the environment variable and --token', () => {
+      const r = runInstall(sandbox, [...SERVER, '--token', 'from-flag', '--token-file', writeTokenFile('from-file')], { [ENV]: 'from-env' })
+      expect(r.status, r.stderr).toBe(0)
+      expect(stored()).toBe('from-file')
+      expect(r.stderr).toContain('--token is deprecated')
+    })
+    it('--token-file beats the environment variable', () => {
+      runInstall(sandbox, [...SERVER, '--token-file', writeTokenFile('from-file')], { [ENV]: 'from-env' })
+      expect(stored()).toBe('from-file')
+    })
+    it('the environment variable beats --token', () => {
+      const r = runInstall(sandbox, [...SERVER, '--token', 'from-flag'], { [ENV]: 'from-env' })
+      expect(stored()).toBe('from-env')
+      expect(r.stderr).toContain('--token is deprecated')
+    })
+
+    // Empty versus absent.
+    it('an empty or blank environment variable counts as unset', () => {
+      const withFlag = runInstall(sandbox, [...SERVER, '--token', 'from-flag'], { [ENV]: '' })
+      expect(withFlag.status, withFlag.stderr).toBe(0)
+      expect(stored()).toBe('from-flag')
+      const alone = runInstall(sandbox, SERVER, { [ENV]: '  ' })
+      expect(alone.status).toBe(1)
+      expect(alone.stderr).toContain('an agent token is required')
+    })
+    it('an empty token file is an error and does not fall through to the environment variable', () => {
+      const r = runInstall(sandbox, [...SERVER, '--token-file', writeTokenFile('\n')], { [ENV]: 'from-env' })
+      expect(r.status).toBe(1)
+      expect(r.stderr).toContain('is empty')
+      expect(existsSync(sandbox.tokenFile)).toBe(false)
+    })
+    it('a missing token file is an error and does not fall through', () => {
+      const r = runInstall(sandbox, [...SERVER, '--token-file', join(sandbox.dir, 'nope')], { [ENV]: 'from-env' })
+      expect(r.status).toBe(1)
+      expect(r.stderr).toContain('is not a readable file')
+    })
+    it('no token anywhere is an error naming the three inputs', () => {
+      const r = runInstall(sandbox, SERVER)
+      expect(r.status).toBe(1)
+      expect(r.stderr).toMatch(/--token-file.*CLAWD_AGENT_TOKEN.*--token/)
+    })
+
+    // Where the token ends up.
+    it('writes the token file with mode 0600 and keeps the token out of config.json and the unit', () => {
+      runInstall(sandbox, SERVER, { [ENV]: 'TOKEN_ONLY_IN_TOKEN_FILE' })
+      expect(statSync(sandbox.tokenFile).mode & 0o777).toBe(0o600)
+      expect(readFileSync(sandbox.configFile, 'utf-8')).not.toContain('TOKEN_ONLY_IN_TOKEN_FILE')
+      const unit = readFileSync(sandbox.serviceFile, 'utf-8')
+      expect(unit).not.toContain('TOKEN_ONLY_IN_TOKEN_FILE')
+      expect(unit).toContain(`--token-file ${sandbox.tokenFile}`)
+      expect(unit).not.toMatch(/--token /)
+    })
+    it('the token never reaches the argv of any command the installer starts, or its output, for file and environment input', () => {
+      for (const [label, args, env] of [
+        ['file', [...SERVER, '--token-file', writeTokenFile('NEVER_IN_ARGV_1')], {}],
+        ['env', SERVER, { [ENV]: 'NEVER_IN_ARGV_2' }],
+      ] as const) {
+        rmSync(sandbox.stubLog, { force: true })
+        const r = runInstall(sandbox, [...args], { ...env })
+        expect(r.status, `${label}: ${r.stderr}`).toBe(0)
+        expect(readFileSync(sandbox.stubLog, 'utf-8'), label).not.toContain('NEVER_IN_ARGV')
+        expect(r.stdout + r.stderr, label).not.toContain('NEVER_IN_ARGV')
+      }
+    })
+    it('commands the installer starts do not inherit the environment variable', () => {
+      // npm stands in for npm, apt-get and curl: all run after the token is read.
+      writeStub(sandbox, 'npm', { extraScript: `printf 'npm-env\\t%s\\n' "\${${ENV}-unset}" >> "$STUB_LOG"` })
+      const r = runInstall(sandbox, SERVER, { [ENV]: 'MUST_NOT_BE_INHERITED' })
+      expect(r.status, r.stderr).toBe(0)
+      const log = readStubLog(sandbox)
+      expect(log).toContain('npm-env\tunset')
+      expect(log.join('\n')).not.toContain('MUST_NOT_BE_INHERITED')
+    })
+    it('rotates the token file when re-run with a different environment token', () => {
+      runInstall(sandbox, SERVER, { [ENV]: 'token-A' })
+      runInstall(sandbox, SERVER, { [ENV]: 'token-B' })
+      expect(stored()).toBe('token-B')
+    })
+    it('warns about a --token-file that other users can read, and still installs', () => {
+      const r = runInstall(sandbox, [...SERVER, '--token-file', writeTokenFile('from-file', 0o644)])
+      expect(r.status, r.stderr).toBe(0)
+      expect(r.stderr).toContain('accessible to other users')
+    })
+    it('does not warn about a --token-file with mode 0600 or 0640', () => {
+      for (const mode of [0o600, 0o640]) {
+        const r = runInstall(sandbox, [...SERVER, '--token-file', writeTokenFile('from-file', mode)])
+        expect(r.stderr, mode.toString(8)).not.toContain('accessible to other users')
+      }
+    })
+
+    // Compatibility: the installer is served from master, the agent package is
+    // released separately, so an agent without --token-file must still install.
+    describe('an installed agent that predates --token-file', () => {
+      beforeEach(() => {
+        writeStub(sandbox, 'clawd-monitor-agent', { stdout: AGENT_HELP_WITHOUT_TOKEN_FILE })
+      })
+      it('keeps the token in config.json and passes only --config in the unit', () => {
+        const r = runInstall(sandbox, SERVER, { [ENV]: 'legacy-token' })
+        expect(r.status, r.stderr).toBe(0)
+        expect(JSON.parse(readFileSync(sandbox.configFile, 'utf-8')).token).toBe('legacy-token')
+        expect(existsSync(sandbox.tokenFile)).toBe(false)
+        const unit = readFileSync(sandbox.serviceFile, 'utf-8')
+        expect(unit).toContain(`ExecStart=${sandbox.stubsDir}/clawd-monitor-agent --config ${sandbox.configFile}\n`)
+        expect(unit).not.toContain('--token-file')
+        expect(unit).not.toContain('legacy-token')
+        expect(r.stderr).toContain('does not support --token-file yet')
+      })
+      it('removes a token file left by an earlier install', () => {
+        mkdirSync(sandbox.configDir, { recursive: true })
+        writeFileSync(sandbox.tokenFile, 'stale-token\n')
+        runInstall(sandbox, SERVER, { [ENV]: 'legacy-token' })
+        expect(existsSync(sandbox.tokenFile)).toBe(false)
+      })
     })
   })
 

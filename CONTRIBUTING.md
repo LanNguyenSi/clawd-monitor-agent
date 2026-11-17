@@ -15,9 +15,8 @@ npm run build
 ## Running Locally
 
 ```bash
-node dist/cli.js \
+CLAWD_AGENT_TOKEN=<token> node dist/cli.js \
   --server https://your-clawd-monitor-domain \
-  --token <token> \
   --name "Dev Agent" \
   --gateway http://localhost:18789
 ```
