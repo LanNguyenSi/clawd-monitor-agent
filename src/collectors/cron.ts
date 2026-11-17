@@ -50,17 +50,16 @@ export async function collectCronJobsViaGateway(gatewayUrl: string, token: strin
 }
 
 /**
- * Collect cron jobs: Gateway RPC when a token is available (config
- * `gateway.token` or OPENCLAW_GATEWAY_TOKEN), otherwise the (cached) CLI.
+ * Collect cron jobs: Gateway RPC when a token is available (the
+ * resolved Gateway token, see `resolveGatewayToken`), otherwise the (cached) CLI.
  */
 export async function collectCronJobs(
   gatewayUrl: string,
   gatewayToken?: string
 ): Promise<CronJob[]> {
-  const token = gatewayToken ?? process.env.OPENCLAW_GATEWAY_TOKEN
-  if (token) {
+  if (gatewayToken) {
     try {
-      return await collectCronJobsViaGateway(gatewayUrl, token)
+      return await collectCronJobsViaGateway(gatewayUrl, gatewayToken)
     } catch {
       /* fall through to the CLI */
     }

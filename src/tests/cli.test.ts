@@ -112,6 +112,28 @@ describe('parseArgs', () => {
     expect(result.token).toBeUndefined()
   })
 
+  it('parses --gateway-token-file as its own key, separate from --gateway-token', () => {
+    process.argv = ['node', 'cli', '--server', 'http://s', '--gateway-token-file', '/etc/clawd-monitor-agent/gateway-token']
+    const result = parseArgs()
+    expect(result['gateway-token-file']).toBe('/etc/clawd-monitor-agent/gateway-token')
+    expect(result['gateway-token']).toBeUndefined()
+  })
+
+  it('--help lists --gateway-token-file, marks --gateway-token deprecated and states the Gateway token precedence', () => {
+    const lines: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { lines.push(a.join(' ')) })
+    try {
+      process.argv = ['node', 'cli', '--help']
+      expect(() => parseArgs()).toThrow('exit:0')
+    } finally {
+      log.mockRestore()
+    }
+    const help = lines.join('\n')
+    expect(help).toMatch(/--gateway-token-file <path>\s+File holding the OpenClaw Gateway API token/)
+    expect(help).toMatch(/--gateway-token <token>\s+.*deprecated/)
+    expect(help).toMatch(/--gateway-token-file,\s+the OPENCLAW_GATEWAY_TOKEN environment variable,\s+--gateway-token, "gateway.token" in --config/)
+  })
+
   // -------------------------------------------------------------------------
   // Lookahead skips when next arg starts with --
   // -------------------------------------------------------------------------

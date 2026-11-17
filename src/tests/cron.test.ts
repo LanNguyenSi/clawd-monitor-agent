@@ -131,11 +131,16 @@ describe('collectCronJobs', () => {
     expect(await collectCronJobs('http://gw', 'tok')).toHaveLength(1)
   })
 
-  it('reads the token from OPENCLAW_GATEWAY_TOKEN', async () => {
+  it('uses only the token it is given, never OPENCLAW_GATEWAY_TOKEN from its own environment', async () => {
     vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', 'env-tok')
-    vi.mocked(withGatewayRpc).mockResolvedValue([] as never)
-    await collectCronJobs('http://gw')
-    expect(vi.mocked(withGatewayRpc).mock.calls[0][1]).toBe('env-tok')
-    vi.unstubAllEnvs()
+    try {
+      vi.mocked(execSync).mockResolvedValue(JSON.stringify({ jobs: [] }))
+      await collectCronJobs('http://gw')
+      expect(withGatewayRpc).not.toHaveBeenCalled()
+      await collectCronJobs('http://gw', 'given-tok')
+      expect(vi.mocked(withGatewayRpc).mock.calls[0][1]).toBe('given-tok')
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

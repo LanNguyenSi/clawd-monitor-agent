@@ -154,4 +154,37 @@ describe('collectSnapshot', () => {
     expect(collectMemory).toHaveBeenCalledOnce()
     expect(collectDocker).toHaveBeenCalledOnce()
   })
+
+  // -------------------------------------------------------------------------
+  // Which Gateway token the collectors get
+  // -------------------------------------------------------------------------
+  it('hands the collectors the collector token, not the forwarded one, when both are set', async () => {
+    const config = makeConfig()
+    config.gateway = { url: 'http://gw', token: 'forwarded', collectorToken: 'collector' }
+    await collectSnapshot(config)
+    expect(collectSessions).toHaveBeenCalledWith('http://gw', 'collector', '/tmp/clawd')
+    expect(collectCronJobs).toHaveBeenCalledWith('http://gw', 'collector')
+  })
+
+  it('hands the collectors gateway.token when no collector token is set', async () => {
+    const config = makeConfig()
+    config.gateway = { url: 'http://gw', token: 'forwarded' }
+    await collectSnapshot(config)
+    expect(collectSessions).toHaveBeenCalledWith('http://gw', 'forwarded', '/tmp/clawd')
+    expect(collectCronJobs).toHaveBeenCalledWith('http://gw', 'forwarded')
+  })
+
+  it('hands the collectors the collector token when there is nothing to forward (environment variable)', async () => {
+    const config = makeConfig()
+    config.gateway = { url: 'http://gw', collectorToken: 'from-env' }
+    await collectSnapshot(config)
+    expect(collectSessions).toHaveBeenCalledWith('http://gw', 'from-env', '/tmp/clawd')
+    expect(collectCronJobs).toHaveBeenCalledWith('http://gw', 'from-env')
+  })
+
+  it('hands the collectors no token when none is configured', async () => {
+    await collectSnapshot(makeConfig())
+    expect(collectSessions).toHaveBeenCalledWith('http://gw', undefined, '/tmp/clawd')
+    expect(collectCronJobs).toHaveBeenCalledWith('http://gw', undefined)
+  })
 })

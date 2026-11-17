@@ -78,11 +78,12 @@ list. The `token` key of the config file still works as well. Passing
 `ps` output and in the process command line that `systemctl status` shows.
 See [Agent token](cli-reference.md#agent-token) for the precedence.
 
-The OpenClaw Gateway token is different. The agent reads
-`OPENCLAW_GATEWAY_TOKEN` from its environment and does not forward it to
-the dashboard, so an `EnvironmentFile=` (mode 0600) is the recommended way
-to set it, as in the unit above; see [OpenClaw data
-sources](cli-reference.md#openclaw-data-sources).
+The OpenClaw Gateway token works the same way: pass `--gateway-token-file
+<path>` (a file of mode 0600), or let the agent read `OPENCLAW_GATEWAY_TOKEN`
+from an `EnvironmentFile=` (mode 0600). The variable is not forwarded to the
+dashboard, a token from the file is. Do not pass it as `--gateway-token`,
+which is visible in `ps`. See [Gateway token](cli-reference.md#gateway-token)
+for the precedence.
 
 Then enable and start it:
 
@@ -94,8 +95,9 @@ systemctl enable --now clawd-monitor-agent
 ## Adjusting the installer's unit
 
 The installer writes `/etc/systemd/system/clawd-monitor-agent.service`,
-`/etc/clawd-monitor-agent/config.json` and the token file
-`/etc/clawd-monitor-agent/token` from scratch on every run, so edits to
+`/etc/clawd-monitor-agent/config.json` and the token files
+`/etc/clawd-monitor-agent/token` and `/etc/clawd-monitor-agent/gateway-token`
+from scratch on every run, so edits to
 any of them are lost when you re-run it. Its unit runs the agent as
 `clawd-agent` with `HOME=/var/lib/clawd-agent`, `ProtectSystem=strict`,
 `ProtectHome=true` and `ReadWritePaths=/var/lib/clawd-agent`, and the
@@ -110,8 +112,12 @@ In the drop-in:
 
 - **Gateway token.** Add `EnvironmentFile=` pointing at a file (mode 0600)
   that sets `OPENCLAW_GATEWAY_TOKEN=...`. The token then stays on the host;
-  a token passed with the installer's `--gateway-token` goes into the
-  config file and is forwarded to the dashboard.
+  a token passed with the installer's `--gateway-token-file` (or the
+  deprecated `--gateway-token`) is written to
+  `/etc/clawd-monitor-agent/gateway-token`, read through
+  `--gateway-token-file` and forwarded to the dashboard. Environment file
+  and installer file can coexist: the installer's file wins for the
+  collectors, see [Gateway token](cli-reference.md#gateway-token).
 - **Workspace path.** Clear `ExecStart` with an empty `ExecStart=` line,
   then repeat the installed `ExecStart=` line (see `systemctl cat
   clawd-monitor-agent`) with `--clawd-dir <path>` appended. The flag

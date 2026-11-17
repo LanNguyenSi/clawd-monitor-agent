@@ -17,7 +17,9 @@ Options:
   --token <token>          Agent token on the command line (deprecated: visible in ps)
   --name <name>            Agent display name (default: hostname)
   --gateway <url>          OpenClaw Gateway URL (default: http://localhost:18789)
-  --gateway-token <token>  OpenClaw Gateway API token
+  --gateway-token-file <path>
+                           File holding the OpenClaw Gateway API token (mode 600; recommended)
+  --gateway-token <token>  OpenClaw Gateway API token on the command line (deprecated: visible in ps)
   --clawd-dir <path>       Path to OpenClaw workspace
   --interval <ms>          Push interval in ms, a number (default: 5000, min: 1000, max: 2147483647)
   --config <path>          Path to JSON config file
@@ -29,6 +31,9 @@ Options:
 
 The agent token comes from the first of these that is set: --token-file,
 the CLAWD_AGENT_TOKEN environment variable, --token, "token" in --config.
+The Gateway token comes from the first of these that is set:
+--gateway-token-file, the OPENCLAW_GATEWAY_TOKEN environment variable,
+--gateway-token, "gateway.token" in --config.
 `)
 }
 

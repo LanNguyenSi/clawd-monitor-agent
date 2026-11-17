@@ -7,12 +7,13 @@ import type { AgentConfig, AgentSnapshot } from '../types.js'
 import { VERSION } from '../version.js'
 
 export async function collectSnapshot(config: AgentConfig): Promise<AgentSnapshot> {
+  const gatewayToken = config.gateway.collectorToken ?? config.gateway.token
   const [sessions, cronJobs] = await Promise.all([
     config.collect.sessions
-      ? collectSessions(config.gateway.url, config.gateway.token, config.clawd_dir)
+      ? collectSessions(config.gateway.url, gatewayToken, config.clawd_dir)
       : Promise.resolve([]),
     config.collect.cron
-      ? collectCronJobs(config.gateway.url, config.gateway.token)
+      ? collectCronJobs(config.gateway.url, gatewayToken)
       : Promise.resolve([]),
   ])
 
