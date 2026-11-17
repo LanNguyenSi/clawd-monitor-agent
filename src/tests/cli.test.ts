@@ -161,6 +161,13 @@ describe('parseArgs', () => {
     expect(result['gateway-token-file']).toBe('/etc/cma/gateway-token')
   })
 
+  it('takes a value that starts with a single dash as the path', () => {
+    process.argv = ['node', 'cli', '--token-file', '-h', '--gateway-token-file', '-tok']
+    const result = parseArgs()
+    expect(result['token-file']).toBe('-h')
+    expect(result['gateway-token-file']).toBe('-tok')
+  })
+
   it('--help lists --gateway-token-file, marks --gateway-token deprecated and states the Gateway token precedence', () => {
     const lines: string[] = []
     const log = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { lines.push(a.join(' ')) })
