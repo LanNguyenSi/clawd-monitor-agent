@@ -71,6 +71,8 @@ host, not to the agent host.
 | `--version` | none | Print version and exit |
 | `--help`, `-h` | none | Show usage and exit |
 
+`--token-file` and `--gateway-token-file` require a value: when the flag is the last argument, the next argument starts with `--`, or the value is an empty string, the agent prints an error naming the flag to stderr and exits with code 1 instead of dropping the flag and falling through to another token source.
+
 `--clawd-dir` only governs where memory files (`MEMORY.md`, `CURRENT.md`, daily logs) are read from. Sessions and cron jobs do not use it: they come from the sources listed under [OpenClaw data sources](#openclaw-data-sources), and the legacy JSONL fallback always reads `~/.openclaw/agents/main/sessions/` in the home directory of the user the agent runs as.
 
 ## Agent token
