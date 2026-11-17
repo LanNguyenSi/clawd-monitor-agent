@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-17
+
 ### Security
 
 - **The agent token no longer has to be on a command line.** A token passed as `--token <value>` stays in `ps` and `/proc/<pid>/cmdline` for as long as the process runs, so any local user on the host could read it and connect as the agent. The agent now also reads the token from `--token-file <path>` (a file other users cannot read: mode 0640 gives a warning, any "other" access is refused) and from the `CLAWD_AGENT_TOKEN` environment variable, which it removes from its own environment after reading so the `docker` and `openclaw` children do not inherit it. Precedence: `--token-file`, then the variable, then `--token`, then `token` in the `--config` file. `--token` still works and prints a deprecation warning on stderr. `install.sh` takes the token from `--token-file`, `CLAWD_AGENT_TOKEN` (unset before npm and apt start) or the now deprecated `--token`, writes it to `/etc/clawd-monitor-agent/token` (mode 0600, owned by `clawd-agent`) and starts the agent with `--token-file`; `config.json` no longer holds the token. If the installed agent predates `--token-file`, the installer keeps the previous layout (token in `config.json`). Existing installs keep working unchanged; the README has the steps to move a host that uses `--token` to the file without changing the token. An empty `--token ""` used to win over the config file and fail; it now counts as unset.
