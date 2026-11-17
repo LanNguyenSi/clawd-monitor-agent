@@ -5,7 +5,13 @@ export interface AgentConfig {
   agentId: string
   gateway: {
     url: string
+    /** Sent to the dashboard server in the `auth` message. */
     token?: string
+    /**
+     * The token the collectors use to call the Gateway (may come from the
+     * environment, which is never forwarded). Falls back to `token`.
+     */
+    collectorToken?: string
   }
   clawd_dir: string
   collect: {

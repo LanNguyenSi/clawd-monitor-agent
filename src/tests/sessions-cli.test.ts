@@ -94,15 +94,15 @@ describe('collectSessions history token source', () => {
     vi.unstubAllEnvs()
   })
 
-  it('uses OPENCLAW_GATEWAY_TOKEN when no gateway token is passed', async () => {
+  it('does not read OPENCLAW_GATEWAY_TOKEN itself: no history request without a given token', async () => {
     vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', 'env-tok')
     vi.mocked(runOpenclaw).mockResolvedValue(JSON.stringify({ sessions: [{ key: 'k' }] }))
     vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ items: [] }) } as unknown as Response)
     await collectSessions('http://gw')
-    expect((vi.mocked(fetch).mock.calls[0][1] as RequestInit).headers).toEqual({ Authorization: 'Bearer env-tok' })
+    expect(fetch).not.toHaveBeenCalled()
   })
 
-  it('prefers an explicit token over the environment', async () => {
+  it('uses the given token for the history request, whatever the environment holds', async () => {
     vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', 'env-tok')
     vi.mocked(runOpenclaw).mockResolvedValue(JSON.stringify({ sessions: [{ key: 'k' }] }))
     vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ items: [] }) } as unknown as Response)
@@ -219,11 +219,18 @@ describe('collectSessions via Gateway RPC', () => {
     expect((await collectSessions('http://gw', 'tok'))[0].recentMessages).toEqual([])
   })
 
-  it('uses OPENCLAW_GATEWAY_TOKEN when no token is passed', async () => {
+  it('does not attempt the gateway from OPENCLAW_GATEWAY_TOKEN alone, only with a given token', async () => {
     vi.stubEnv('OPENCLAW_GATEWAY_TOKEN', 'env-tok')
-    fakeGateway({ 'sessions.list': { sessions: [] } })
-    await collectSessions('http://gw')
-    expect(vi.mocked(withGatewayRpc).mock.calls[0][1]).toBe('env-tok')
+    try {
+      fakeGateway({ 'sessions.list': { sessions: [] } })
+      vi.mocked(runOpenclaw).mockResolvedValue(JSON.stringify({ sessions: [] }))
+      await collectSessions('http://gw')
+      expect(withGatewayRpc).not.toHaveBeenCalled()
+      await collectSessions('http://gw', 'given-tok')
+      expect(vi.mocked(withGatewayRpc).mock.calls[0][1]).toBe('given-tok')
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('falls back to the CLI when the gateway call fails', async () => {

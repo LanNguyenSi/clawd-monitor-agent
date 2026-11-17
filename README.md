@@ -91,11 +91,23 @@ The installed service runs as `clawd-agent` with its home at
 `/var/lib/clawd-agent` and `ProtectHome=true`. By default it reads memory
 files from `/var/lib/clawd-agent/.openclaw/workspace`, and without a
 Gateway token its sessions and cron jobs come from the `openclaw` CLI run
-as `clawd-agent`. `--gateway-token` stores the token in the config file,
-and the agent forwards that value to the dashboard. See [Adjusting the
-installer's unit](docs/systemd-service.md#adjusting-the-installers-unit)
-to set the Gateway token or the workspace path in a way that survives
-re-running the installer.
+as `clawd-agent`. `--gateway-token-file <path>` makes the installer copy
+the token to `/etc/clawd-monitor-agent/gateway-token` (mode 0600, owned by
+`clawd-agent`) and start the agent with `--gateway-token-file`; the agent
+forwards that token to the dashboard. `--gateway-token <value>` does the same
+but is deprecated: the value is visible in `ps` while the installer runs. See
+[Adjusting the installer's unit](docs/systemd-service.md#adjusting-the-installers-unit)
+to keep the Gateway token on the host (`OPENCLAW_GATEWAY_TOKEN`) or to set
+the workspace path in a way that survives re-running the installer.
+
+The agent takes the Gateway token from the first of these that is set:
+`--gateway-token-file`, the `OPENCLAW_GATEWAY_TOKEN` environment variable,
+`--gateway-token` (deprecated, visible in `ps`), `gateway.token` in the
+config file. Only the environment variable is never forwarded to the
+dashboard. See [Gateway token](docs/cli-reference.md#gateway-token) for the
+details and the upgrade note for hosts installed with `--gateway-token`: they
+keep working unchanged, and re-running the installer with
+`--gateway-token-file` moves the token out of `config.json`.
 
 Or install the package directly:
 

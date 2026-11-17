@@ -132,6 +132,21 @@ describe('Agent WebSocket client', () => {
 
       agent.stop()
     })
+
+    it('does not send the collector-only gateway token (from the environment) to the server', () => {
+      const config = makeConfig({ gateway: { url: 'http://localhost:18789', collectorToken: 'env-gw-token' } })
+      const agent = new Agent(config)
+      agent.start()
+
+      const ws = wsFixture.getLast()!
+      ws.emit('open')
+
+      const raw = ws.send.mock.calls[0][0] as string
+      expect(JSON.parse(raw).gatewayToken).toBeUndefined()
+      expect(raw).not.toContain('env-gw-token')
+
+      agent.stop()
+    })
   })
 
   // -------------------------------------------------------------------------

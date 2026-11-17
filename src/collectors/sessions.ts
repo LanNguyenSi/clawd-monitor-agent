@@ -232,8 +232,8 @@ export async function collectSessionsViaGateway(
 
 /**
  * Collect sessions. Order of preference:
- *  1. Gateway WebSocket RPC (needs a Gateway token: config `gateway.token` or
- *     the OPENCLAW_GATEWAY_TOKEN env var, which stays on the host),
+ *  1. Gateway WebSocket RPC (needs the resolved Gateway token, see
+ *     `resolveGatewayToken`),
  *  2. `openclaw sessions --all-agents --json` (+ HTTP history), cached,
  *  3. legacy JSONL transcripts (OpenClaw < 2026.9).
  */
@@ -242,11 +242,9 @@ export async function collectSessions(
   gatewayToken?: string,
   clawdDir?: string
 ): Promise<Session[]> {
-  // config.gateway.token is forwarded to the dashboard server; the env var is not.
-  const historyToken = gatewayToken ?? process.env.OPENCLAW_GATEWAY_TOKEN
-  if (historyToken) {
+  if (gatewayToken) {
     try {
-      return await collectSessionsViaGateway(gatewayUrl, historyToken)
+      return await collectSessionsViaGateway(gatewayUrl, gatewayToken)
     } catch {
       /* fall through to the CLI */
     }
@@ -264,7 +262,7 @@ export async function collectSessions(
 
     return await Promise.all(
       rows.map(async (row): Promise<Session> =>
-        toSession(row, await fetchRecentMessages(gatewayUrl, historyToken, row.key)),
+        toSession(row, await fetchRecentMessages(gatewayUrl, gatewayToken, row.key)),
       ),
     )
   } catch {

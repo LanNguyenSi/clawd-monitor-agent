@@ -32,6 +32,7 @@ SERVICE_HOME="${CLAWD_INSTALL_SERVICE_HOME:-/var/lib/clawd-agent}"
 CONFIG_DIR="${CLAWD_INSTALL_CONFIG_DIR:-/etc/clawd-monitor-agent}"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 TOKEN_FILE="$CONFIG_DIR/token"
+GATEWAY_TOKEN_FILE="$CONFIG_DIR/gateway-token"
 SERVICE_FILE="${CLAWD_INSTALL_SERVICE_FILE:-/etc/systemd/system/clawd-monitor-agent.service}"
 SERVICE_NAME="clawd-monitor-agent"
 NODE_MAJOR_REQUIRED=18
@@ -73,6 +74,7 @@ ARG_TOKEN_FILE=""
 ARG_NAME=""
 ARG_GATEWAY=""
 ARG_GATEWAY_TOKEN=""
+ARG_GATEWAY_TOKEN_FILE=""
 ARG_INTERVAL=""
 
 print_usage() {
@@ -92,7 +94,11 @@ from the first of these that is set:
 Options:
   --name <name>            Display name in the dashboard (default: hostname)
   --gateway <url>          OpenClaw gateway URL (default: http://localhost:18789)
-  --gateway-token <token>  OpenClaw gateway auth token
+  --gateway-token-file <path>
+                           File holding the OpenClaw gateway auth token (mode 600 recommended);
+                           the installer copies it to a file of its own for the service
+  --gateway-token <token>  OpenClaw gateway auth token. Deprecated: the value is visible in the
+                           process list while the installer runs. --gateway-token-file wins
   --interval <ms>          Snapshot push interval in ms, a whole number (default: 5000, min: 1000, max: 2147483647)
   -h, --help               Show this help
 
@@ -116,6 +122,7 @@ while [ "$#" -gt 0 ]; do
     --name)           need_value "$1" "$#" "${2:-}"; ARG_NAME="$2";           shift 2 ;;
     --gateway)        need_value "$1" "$#" "${2:-}"; ARG_GATEWAY="$2";        shift 2 ;;
     --gateway-token)  need_value "$1" "$#" "${2:-}"; ARG_GATEWAY_TOKEN="$2";  shift 2 ;;
+    --gateway-token-file) need_value "$1" "$#" "${2:-}"; ARG_GATEWAY_TOKEN_FILE="$2"; shift 2 ;;
     --interval)       need_value "$1" "$#" "${2:-}"; ARG_INTERVAL="$2";       shift 2 ;;
     -h|--help)        print_usage; exit 0 ;;
     *)                fail "unknown argument: $1 (run with --help)" ;;
@@ -157,6 +164,25 @@ else
   fail "an agent token is required: use --token-file <path>, the CLAWD_AGENT_TOKEN environment variable, or --token"
 fi
 ENV_TOKEN=""
+
+# Gateway token input (optional). Precedence, highest first: --gateway-token-file,
+# --gateway-token. The installer has no environment variable for it on purpose:
+# OPENCLAW_GATEWAY_TOKEN is often set on a host that runs OpenClaw, and the
+# installer would then forward a token nobody passed to it. An empty or
+# unreadable gateway token file is an error.
+if [ -n "$ARG_GATEWAY_TOKEN" ]; then
+  warn "--gateway-token is deprecated: the value is visible in the process list while the installer runs. Use --gateway-token-file <path>."
+fi
+
+GATEWAY_TOKEN=""
+if [ -n "$ARG_GATEWAY_TOKEN_FILE" ]; then
+  [ -f "$ARG_GATEWAY_TOKEN_FILE" ] && [ -r "$ARG_GATEWAY_TOKEN_FILE" ] || fail "--gateway-token-file $ARG_GATEWAY_TOKEN_FILE is not a readable file"
+  GATEWAY_TOKEN="$(trim_ws "$(head -n 1 "$ARG_GATEWAY_TOKEN_FILE")")"
+  [ -n "$GATEWAY_TOKEN" ] || fail "--gateway-token-file $ARG_GATEWAY_TOKEN_FILE is empty"
+elif [ -n "$ARG_GATEWAY_TOKEN" ]; then
+  GATEWAY_TOKEN="$ARG_GATEWAY_TOKEN"
+fi
+ARG_GATEWAY_TOKEN=""
 
 # Validate --interval before writing it with printf %d: a whole number of ms,
 # at most 2147483647, like the agent's own start-up check (src/config.ts),
@@ -237,6 +263,13 @@ if [ -n "$ARG_TOKEN_FILE" ]; then
   esac
 fi
 
+if [ -n "$ARG_GATEWAY_TOKEN_FILE" ]; then
+  gateway_token_file_mode=$(stat -c %a "$ARG_GATEWAY_TOKEN_FILE")
+  case "$gateway_token_file_mode" in
+    *[1-7]) warn "--gateway-token-file $ARG_GATEWAY_TOKEN_FILE is accessible to other users (mode $gateway_token_file_mode); remove the file after the install or use mode 600" ;;
+  esac
+fi
+
 # ---------------------------------------------------------------------------
 # npm package
 # ---------------------------------------------------------------------------
@@ -273,6 +306,26 @@ detect_token_layout() {
 }
 
 detect_token_layout
+
+# The same check for the gateway token: an agent older than --gateway-token-file
+# gets the token in config.json, as before. Only relevant when a gateway token
+# was given at all.
+GATEWAY_LAYOUT="none"
+detect_gateway_token_layout() {
+  [ -n "$GATEWAY_TOKEN" ] || return 0
+  local agent_bin help_text
+  agent_bin=$(command -v "$PACKAGE_NAME")
+  help_text=$("$agent_bin" --help)
+  case "$help_text" in
+    *--gateway-token-file*) GATEWAY_LAYOUT="file" ;;
+    *)
+      GATEWAY_LAYOUT="config"
+      warn "the installed ${PACKAGE_NAME} does not support --gateway-token-file yet; storing the gateway token in ${CONFIG_FILE} (mode 0640) instead"
+      ;;
+  esac
+}
+
+detect_gateway_token_layout
 
 # ---------------------------------------------------------------------------
 # Service user + directories
@@ -373,8 +426,8 @@ write_config() {
     printf '  "intervalMs": %d,\n'       "$CONFIG_INTERVAL"
     printf '  "gateway": {\n'
     printf '    "url": %s'               "$(json_escape "$CONFIG_GATEWAY")"
-    if [ -n "$ARG_GATEWAY_TOKEN" ]; then
-      printf ',\n    "token": %s\n'      "$(json_escape "$ARG_GATEWAY_TOKEN")"
+    if [ "$GATEWAY_LAYOUT" = "config" ]; then
+      printf ',\n    "token": %s\n'      "$(json_escape "$GATEWAY_TOKEN")"
     else
       printf '\n'
     fi
@@ -382,7 +435,7 @@ write_config() {
     printf '}\n'
   } > "$tmpfile"
 
-  mv -f "$tmpfile" "$CONFIG_FILE"
+  mv -fT "$tmpfile" "$CONFIG_FILE"
 }
 
 # The token lives in its own file, mode 0600 and owned by the service user,
@@ -406,7 +459,33 @@ write_token_file() {
     chown "${SERVICE_USER}:${SERVICE_USER}" "$tmpfile"
   fi
   printf '%s\n' "$AGENT_TOKEN" > "$tmpfile"
-  mv -f "$tmpfile" "$TOKEN_FILE"
+  mv -fT "$tmpfile" "$TOKEN_FILE"
+}
+
+# The gateway token gets a file of its own as well (mode 0600, owned by the
+# service user), so it is on no command line and not in config.json.
+write_gateway_token_file() {
+  [ "$GATEWAY_LAYOUT" = "file" ] || return 0
+
+  log "writing gateway token → ${GATEWAY_TOKEN_FILE} (mode 0600, owned by ${SERVICE_USER})"
+  local tmpfile
+  tmpfile=$(mktemp "${CONFIG_DIR}/gateway-token.XXXXXX")
+  trap 'rm -f "$tmpfile"' RETURN
+
+  chmod 0600 "$tmpfile"
+  if [ "$SKIP_USER_CREATE" != "1" ]; then
+    chown "${SERVICE_USER}:${SERVICE_USER}" "$tmpfile"
+  fi
+  printf '%s\n' "$GATEWAY_TOKEN" > "$tmpfile"
+  mv -fT "$tmpfile" "$GATEWAY_TOKEN_FILE"
+}
+
+# A gateway token file left by an earlier install must not outlive a run that
+# does not use one (no gateway token given, or an older agent): config.json is
+# rewritten from scratch on every run, and so is this file. It is removed last,
+# after the unit that stopped referencing it is in place.
+remove_stale_gateway_token_file() {
+  [ "$GATEWAY_LAYOUT" = "file" ] || rm -f "$GATEWAY_TOKEN_FILE"
 }
 
 # ---------------------------------------------------------------------------
@@ -418,8 +497,8 @@ write_unit() {
   local agent_bin
   agent_bin=$(command -v "$PACKAGE_NAME")
 
-  # NOTE: the token is NOT in this unit, only the path of the file that
-  # holds it (mode 0600, owned by the service user). With an agent that
+  # NOTE: the tokens are NOT in this unit, only the paths of the files that
+  # hold them (mode 0600, owned by the service user). With an agent that
   # predates --token-file it is in the config file instead (mode 0640,
   # root:clawd-agent). systemctl status / cat can be run by any local user
   # without exposing the token.
@@ -427,7 +506,15 @@ write_unit() {
   if [ "$TOKEN_LAYOUT" = "file" ]; then
     exec_args="${exec_args} --token-file ${TOKEN_FILE}"
   fi
-  cat > "$SERVICE_FILE" <<UNIT
+  if [ "$GATEWAY_LAYOUT" = "file" ]; then
+    exec_args="${exec_args} --gateway-token-file ${GATEWAY_TOKEN_FILE}"
+  fi
+  # Written next to the unit and moved into place, so a failure half way
+  # leaves the previous unit intact instead of a truncated one.
+  local unit_tmp
+  unit_tmp=$(mktemp "${SERVICE_FILE}.XXXXXX")
+  trap 'rm -f "$unit_tmp"' RETURN
+  cat > "$unit_tmp" <<UNIT
 [Unit]
 Description=clawd-monitor agent (push-based monitoring)
 Documentation=https://github.com/LanNguyenSi/clawd-monitor-agent
@@ -453,7 +540,10 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 UNIT
-  chmod 0644 "$SERVICE_FILE"
+  chmod 0644 "$unit_tmp"
+  # A failed mv ends the run through the ERR trap, which skips the RETURN trap
+  # above, so remove the temporary file here.
+  mv -fT "$unit_tmp" "$SERVICE_FILE" || { rm -f "$unit_tmp"; return 1; }
 }
 
 # Order matters: a failure between two of these steps must leave a host that
@@ -461,16 +551,21 @@ UNIT
 # reads it, and config.json (which no longer holds the token) last: the old unit
 # with the old config, and the new unit with the old config, both start. With
 # the older agent the config (which holds the token) comes first, then the
-# unit, and the token file of an earlier install is removed last.
+# unit, and the token file of an earlier install is removed last. The gateway
+# token file follows the same rule: written before the unit that reads it, and a
+# file of an earlier install removed only at the very end.
 if [ "$TOKEN_LAYOUT" = "file" ]; then
   write_token_file
+  write_gateway_token_file
   write_unit
   write_config
 else
+  write_gateway_token_file
   write_config
   write_unit
   write_token_file
 fi
+remove_stale_gateway_token_file
 
 # ---------------------------------------------------------------------------
 # Activate
@@ -532,6 +627,12 @@ else
   TOKEN_DESCRIPTION="inside the config file (older agent without --token-file)"
 fi
 
+case "$GATEWAY_LAYOUT" in
+  file)   GATEWAY_LINE="  Gateway token: $GATEWAY_TOKEN_FILE  (mode 0600, ${SERVICE_USER})" ;;
+  config) GATEWAY_LINE="  Gateway token: inside the config file (older agent without --gateway-token-file)" ;;
+  *)      GATEWAY_LINE="" ;;
+esac
+
 cat <<DONE
 
 [install] ✓ clawd-monitor-agent installed and running
@@ -540,7 +641,8 @@ cat <<DONE
   Status:   active (verified above)
   Config:   $CONFIG_FILE  (mode 0640, root:${SERVICE_USER})
   Token:    $TOKEN_DESCRIPTION
-  Unit:     $SERVICE_FILE
+${GATEWAY_LINE:+$GATEWAY_LINE
+}  Unit:     $SERVICE_FILE
   Logs:     journalctl -u ${SERVICE_NAME} -f
 
 The agent is pushing snapshots to ${ARG_SERVER}. Watch the dashboard

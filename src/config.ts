@@ -3,7 +3,7 @@ import { join, dirname } from 'path'
 import { homedir, hostname } from 'os'
 import { randomUUID } from 'crypto'
 import type { AgentConfig } from './types.js'
-import { resolveToken, TokenInputError, TOKEN_ENV_VAR } from './token.js'
+import { resolveToken, resolveGatewayToken, TokenInputError, TOKEN_ENV_VAR } from './token.js'
 
 const AGENT_ID_FILE = join(homedir(), '.clawd-agent-id')
 
@@ -23,6 +23,7 @@ interface CliArgs {
   name?: string
   gateway?: string
   'gateway-token'?: string
+  'gateway-token-file'?: string
   'clawd-dir'?: string
   interval?: string
   config?: string
@@ -62,11 +63,18 @@ export function loadConfig(args: CliArgs, env: NodeJS.ProcessEnv = process.env):
 
   const server = args.server ?? fileConfig.server
   let token: string | undefined
+  let gatewayToken: ReturnType<typeof resolveGatewayToken>
   try {
     token = resolveToken({
       tokenFile: args['token-file'],
       tokenFlag: args.token,
       configToken: fileConfig.token,
+      env,
+    })
+    gatewayToken = resolveGatewayToken({
+      tokenFile: args['gateway-token-file'],
+      tokenFlag: args['gateway-token'],
+      configToken: fileConfig.gateway?.token,
       env,
     })
   } catch (err) {
@@ -78,6 +86,10 @@ export function loadConfig(args: CliArgs, env: NodeJS.ProcessEnv = process.env):
   }
   // The collectors start child processes (docker, openclaw) that inherit the
   // environment; the token has no business there once it is read.
+  // OPENCLAW_GATEWAY_TOKEN is left alone on purpose: the `openclaw` CLI that
+  // the sessions and cron collectors fall back to reads it from the child's
+  // environment. The collectors' own Gateway calls use the resolved value
+  // below, not the variable.
   if (env === process.env) delete env[TOKEN_ENV_VAR]
 
   if (!server) {
@@ -106,7 +118,8 @@ export function loadConfig(args: CliArgs, env: NodeJS.ProcessEnv = process.env):
     agentId: fileConfig.agentId ?? getOrCreateAgentId(),
     gateway: {
       url: args.gateway ?? fileConfig.gateway?.url ?? 'http://localhost:18789',
-      token: args['gateway-token'] ?? fileConfig.gateway?.token,
+      token: gatewayToken.forwarded,
+      collectorToken: gatewayToken.token,
     },
     clawd_dir: args['clawd-dir'] ?? fileConfig.clawd_dir ?? join(homedir(), '.openclaw', 'workspace'),
     collect: {
