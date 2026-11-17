@@ -965,13 +965,14 @@ exec /bin/mv "$@"
   // and a chown stub records what the installer asked for, without needing root.
   describe.skipIf(process.platform !== 'linux')('file ownership', () => {
     const chownLines = () => readStubLog(sandbox).filter((l) => l.startsWith('chown\t'))
-    function runWithUser(args: string[]) {
+    function runWithUser(args: string[], env: Record<string, string> = {}) {
       writeStub(sandbox, 'chown')
       const gw = join(sandbox.dir, 'supplied-gateway-token')
       writeFileSync(gw, 'gw-owned\n')
       return runInstall(sandbox, ['--server', 'wss://x', '--gateway-token-file', gw, ...args], {
         CLAWD_INSTALL_SKIP_USER_CREATE: '0',
         CLAWD_AGENT_TOKEN: 'agent-owned',
+        ...env,
       })
     }
 
@@ -985,9 +986,14 @@ exec /bin/mv "$@"
       expect(lines).toHaveLength(3)
     })
     it('uses the configured service user', () => {
-      const r = runWithUser([])
+      const r = runWithUser([], { CLAWD_INSTALL_SERVICE_USER: 'svc-other' })
       expect(r.status, r.stderr).toBe(0)
-      expect(chownLines().every((l) => l.includes('clawd-agent'))).toBe(true)
+      const lines = chownLines()
+      expect(lines.filter((l) => /^chown\tsvc-other:svc-other .*\/token\.[A-Za-z0-9]{6}$/.test(l))).toHaveLength(1)
+      expect(lines.filter((l) => /^chown\tsvc-other:svc-other .*\/gateway-token\.[A-Za-z0-9]{6}$/.test(l))).toHaveLength(1)
+      expect(lines.filter((l) => /^chown\troot:svc-other .*\/config\.json\.[A-Za-z0-9]{6}$/.test(l))).toHaveLength(1)
+      expect(lines).toHaveLength(3)
+      expect(lines.some((l) => l.includes('clawd-agent'))).toBe(false)
     })
     it('does not chown anything in test mode (user creation skipped)', () => {
       writeStub(sandbox, 'chown')
