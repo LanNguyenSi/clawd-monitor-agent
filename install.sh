@@ -6,7 +6,12 @@
 # served from raw.githubusercontent.com and invoked as:
 #
 #   curl -fsSL https://raw.githubusercontent.com/LanNguyenSi/clawd-monitor-agent/master/install.sh \
-#     | sudo bash -s -- --server wss://clawd-monitor.example --token <TOKEN>
+#     | CLAWD_AGENT_TOKEN=<TOKEN> sudo --preserve-env=CLAWD_AGENT_TOKEN bash -s -- \
+#         --server wss://clawd-monitor.example
+#
+# The token is taken from --token-file <path>, else from the CLAWD_AGENT_TOKEN
+# environment variable, else from --token (deprecated: the value is visible
+# in the process list for as long as the installer runs).
 #
 # Requires: Debian/Ubuntu, root or sudo, network access to NodeSource
 # and npm.
@@ -26,6 +31,7 @@ SERVICE_USER="${CLAWD_INSTALL_SERVICE_USER:-clawd-agent}"
 SERVICE_HOME="${CLAWD_INSTALL_SERVICE_HOME:-/var/lib/clawd-agent}"
 CONFIG_DIR="${CLAWD_INSTALL_CONFIG_DIR:-/etc/clawd-monitor-agent}"
 CONFIG_FILE="$CONFIG_DIR/config.json"
+TOKEN_FILE="$CONFIG_DIR/token"
 SERVICE_FILE="${CLAWD_INSTALL_SERVICE_FILE:-/etc/systemd/system/clawd-monitor-agent.service}"
 SERVICE_NAME="clawd-monitor-agent"
 NODE_MAJOR_REQUIRED=18
@@ -63,6 +69,7 @@ trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "\033[1;31m[install:fail]\033[0m in
 
 ARG_SERVER=""
 ARG_TOKEN=""
+ARG_TOKEN_FILE=""
 ARG_NAME=""
 ARG_GATEWAY=""
 ARG_GATEWAY_TOKEN=""
@@ -70,11 +77,17 @@ ARG_INTERVAL=""
 
 print_usage() {
   cat <<USAGE
-Usage: install.sh --server <url> --token <token> [options]
+Usage: install.sh --server <url> (--token-file <path> | CLAWD_AGENT_TOKEN=<token>) [options]
 
 Required:
   --server <url>           clawd-monitor server URL (https:// or wss://)
-  --token <token>          Agent auth token ("+ Add Agent" in the dashboard, or Settings -> Agent Tokens)
+
+Agent auth token ("+ Add Agent" in the dashboard, or Settings -> Agent Tokens),
+from the first of these that is set:
+  --token-file <path>      File holding the token (mode 600 recommended)
+  CLAWD_AGENT_TOKEN        Environment variable (use sudo --preserve-env=CLAWD_AGENT_TOKEN)
+  --token <token>          Deprecated: the value is visible in the process list
+                           while the installer runs
 
 Options:
   --name <name>            Display name in the dashboard (default: hostname)
@@ -84,7 +97,7 @@ Options:
   -h, --help               Show this help
 
 Re-running the installer with the same args is a no-op restart.
-Re-running with a different --token rotates the token cleanly.
+Re-running with a different token rotates the token cleanly.
 USAGE
 }
 
@@ -99,6 +112,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --server)         need_value "$1" "$#" "${2:-}"; ARG_SERVER="$2";         shift 2 ;;
     --token)          need_value "$1" "$#" "${2:-}"; ARG_TOKEN="$2";          shift 2 ;;
+    --token-file)     need_value "$1" "$#" "${2:-}"; ARG_TOKEN_FILE="$2";     shift 2 ;;
     --name)           need_value "$1" "$#" "${2:-}"; ARG_NAME="$2";           shift 2 ;;
     --gateway)        need_value "$1" "$#" "${2:-}"; ARG_GATEWAY="$2";        shift 2 ;;
     --gateway-token)  need_value "$1" "$#" "${2:-}"; ARG_GATEWAY_TOKEN="$2";  shift 2 ;;
@@ -109,7 +123,40 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$ARG_SERVER" ] || { print_usage >&2; fail "--server is required"; }
-[ -n "$ARG_TOKEN" ]  || { print_usage >&2; fail "--token is required"; }
+
+# Token input. Precedence, highest first: --token-file, the CLAWD_AGENT_TOKEN
+# environment variable, --token. A set but empty (or whitespace-only)
+# environment variable counts as unset; an empty or unreadable token file is
+# an error. The variable is unset right away so that npm, apt and curl and
+# everything they start never inherit it.
+trim_ws() {
+  local v=$1
+  v=${v#"${v%%[![:space:]]*}"}
+  v=${v%"${v##*[![:space:]]}"}
+  printf '%s' "$v"
+}
+
+ENV_TOKEN="$(trim_ws "${CLAWD_AGENT_TOKEN:-}")"
+unset CLAWD_AGENT_TOKEN
+
+if [ -n "$ARG_TOKEN" ]; then
+  warn "--token is deprecated: the value is visible in the process list while the installer runs. Use --token-file <path> or the CLAWD_AGENT_TOKEN environment variable."
+fi
+
+AGENT_TOKEN=""
+if [ -n "$ARG_TOKEN_FILE" ]; then
+  [ -f "$ARG_TOKEN_FILE" ] && [ -r "$ARG_TOKEN_FILE" ] || fail "--token-file $ARG_TOKEN_FILE is not a readable file"
+  AGENT_TOKEN="$(trim_ws "$(head -n 1 "$ARG_TOKEN_FILE")")"
+  [ -n "$AGENT_TOKEN" ] || fail "--token-file $ARG_TOKEN_FILE is empty"
+elif [ -n "$ENV_TOKEN" ]; then
+  AGENT_TOKEN="$ENV_TOKEN"
+elif [ -n "$ARG_TOKEN" ]; then
+  AGENT_TOKEN="$ARG_TOKEN"
+else
+  print_usage >&2
+  fail "an agent token is required: use --token-file <path>, the CLAWD_AGENT_TOKEN environment variable, or --token"
+fi
+ENV_TOKEN=""
 
 # Validate --interval before writing it with printf %d: a whole number of ms,
 # at most 2147483647, like the agent's own start-up check (src/config.ts),
@@ -181,6 +228,15 @@ ensure_node() {
 
 ensure_node
 
+# A token file that other users can read exposes the token to them. The
+# installer only reads it (as root), so this is a warning, not an error.
+if [ -n "$ARG_TOKEN_FILE" ]; then
+  token_file_mode=$(stat -c %a "$ARG_TOKEN_FILE")
+  case "$token_file_mode" in
+    *[1-7]) warn "--token-file $ARG_TOKEN_FILE is accessible to other users (mode $token_file_mode); remove the file after the install or use mode 600" ;;
+  esac
+fi
+
 # ---------------------------------------------------------------------------
 # npm package
 # ---------------------------------------------------------------------------
@@ -198,6 +254,25 @@ install_package() {
 }
 
 install_package
+
+# An agent older than the --token-file flag cannot read the token from its own
+# file. The installer is served from master while the npm package is released
+# separately, so check what was actually installed and fall back to the
+# previous layout (token inside config.json) for an agent that lacks the flag.
+detect_token_layout() {
+  local agent_bin help_text
+  agent_bin=$(command -v "$PACKAGE_NAME")
+  help_text=$("$agent_bin" --help)
+  case "$help_text" in
+    *--token-file*) TOKEN_LAYOUT="file" ;;
+    *)
+      TOKEN_LAYOUT="config"
+      warn "the installed ${PACKAGE_NAME} does not support --token-file yet; storing the token in ${CONFIG_FILE} (mode 0640) instead"
+      ;;
+  esac
+}
+
+detect_token_layout
 
 # ---------------------------------------------------------------------------
 # Service user + directories
@@ -241,10 +316,11 @@ ensure_service_user
 # ---------------------------------------------------------------------------
 
 # Resolve dynamic defaults *before* we go silent on the token. The token
-# itself is written to a tempfile via a heredoc and mv'd into place;
-# after argument parsing we never echo $ARG_TOKEN, never pass it on a
-# command line that ps(1) could expose, and never put it in `set -x`
-# output. The installer's own argv still carries it while it runs.
+# itself is written to a tempfile with printf (a builtin, so no argv) and
+# mv'd into place; after argument parsing we never echo $AGENT_TOKEN, never
+# pass it on a command line that ps(1) could expose, and never put it in
+# `set -x` output. The installer's own argv carries it only when the
+# deprecated --token flag was used.
 
 CONFIG_NAME="${ARG_NAME:-$(hostname)}"
 CONFIG_GATEWAY="${ARG_GATEWAY:-http://localhost:18789}"
@@ -290,7 +366,9 @@ write_config() {
   {
     printf '{\n'
     printf '  "server": %s,\n'           "$(json_escape "$ARG_SERVER")"
-    printf '  "token": %s,\n'            "$(json_escape "$ARG_TOKEN")"
+    if [ "$TOKEN_LAYOUT" = "config" ]; then
+      printf '  "token": %s,\n'          "$(json_escape "$AGENT_TOKEN")"
+    fi
     printf '  "name": %s,\n'             "$(json_escape "$CONFIG_NAME")"
     printf '  "intervalMs": %d,\n'       "$CONFIG_INTERVAL"
     printf '  "gateway": {\n'
@@ -307,7 +385,29 @@ write_config() {
   mv -f "$tmpfile" "$CONFIG_FILE"
 }
 
-write_config
+# The token lives in its own file, mode 0600 and owned by the service user,
+# and the unit points the agent at it with --token-file. config.json then holds
+# no secret except an optional gateway token.
+write_token_file() {
+  if [ "$TOKEN_LAYOUT" != "file" ]; then
+    # A file left by an earlier install must not outlive a fallback to the
+    # old layout: it would hold a token that is no longer rotated.
+    rm -f "$TOKEN_FILE"
+    return 0
+  fi
+
+  log "writing token → ${TOKEN_FILE} (mode 0600, owned by ${SERVICE_USER})"
+  local tmpfile
+  tmpfile=$(mktemp "${CONFIG_DIR}/token.XXXXXX")
+  trap 'rm -f "$tmpfile"' RETURN
+
+  chmod 0600 "$tmpfile"
+  if [ "$SKIP_USER_CREATE" != "1" ]; then
+    chown "${SERVICE_USER}:${SERVICE_USER}" "$tmpfile"
+  fi
+  printf '%s\n' "$AGENT_TOKEN" > "$tmpfile"
+  mv -f "$tmpfile" "$TOKEN_FILE"
+}
 
 # ---------------------------------------------------------------------------
 # systemd unit
@@ -318,9 +418,15 @@ write_unit() {
   local agent_bin
   agent_bin=$(command -v "$PACKAGE_NAME")
 
-  # NOTE: token is NOT in this unit. The agent reads it from the config
-  # file (which is mode 0640, root:clawd-agent). systemctl status / cat
-  # can be run by any local user without exposing the token.
+  # NOTE: the token is NOT in this unit, only the path of the file that
+  # holds it (mode 0600, owned by the service user). With an agent that
+  # predates --token-file it is in the config file instead (mode 0640,
+  # root:clawd-agent). systemctl status / cat can be run by any local user
+  # without exposing the token.
+  local exec_args="--config ${CONFIG_FILE}"
+  if [ "$TOKEN_LAYOUT" = "file" ]; then
+    exec_args="${exec_args} --token-file ${TOKEN_FILE}"
+  fi
   cat > "$SERVICE_FILE" <<UNIT
 [Unit]
 Description=clawd-monitor agent (push-based monitoring)
@@ -333,7 +439,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_USER}
 Environment=HOME=${SERVICE_HOME}
-ExecStart=${agent_bin} --config ${CONFIG_FILE}
+ExecStart=${agent_bin} ${exec_args}
 Restart=always
 RestartSec=10
 # Hardening: the agent only needs to read /proc, run docker via the
@@ -350,7 +456,21 @@ UNIT
   chmod 0644 "$SERVICE_FILE"
 }
 
-write_unit
+# Order matters: a failure between two of these steps must leave a host that
+# still boots. With --token-file the token file comes first, then the unit that
+# reads it, and config.json (which no longer holds the token) last: the old unit
+# with the old config, and the new unit with the old config, both start. With
+# the older agent the config (which holds the token) comes first, then the
+# unit, and the token file of an earlier install is removed last.
+if [ "$TOKEN_LAYOUT" = "file" ]; then
+  write_token_file
+  write_unit
+  write_config
+else
+  write_config
+  write_unit
+  write_token_file
+fi
 
 # ---------------------------------------------------------------------------
 # Activate
@@ -399,12 +519,18 @@ recent_logs=$(journalctl -u "$SERVICE_NAME" --since "2 minutes ago" --no-pager -
 if printf '%s\n' "$recent_logs" | grep -qE 'Authentication failed|auth_error'; then
   warn "auth error detected in recent logs:"
   printf '%s\n' "$recent_logs" | tail -n 20 >&2
-  fail "agent reported an auth error — verify --token matches a token in the dashboard"
+  fail "agent reported an auth error — verify the token matches one in the dashboard"
 fi
 
 # ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------
+
+if [ "$TOKEN_LAYOUT" = "file" ]; then
+  TOKEN_DESCRIPTION="$TOKEN_FILE  (mode 0600, ${SERVICE_USER})"
+else
+  TOKEN_DESCRIPTION="inside the config file (older agent without --token-file)"
+fi
 
 cat <<DONE
 
@@ -413,6 +539,7 @@ cat <<DONE
   Service:  $SERVICE_NAME
   Status:   active (verified above)
   Config:   $CONFIG_FILE  (mode 0640, root:${SERVICE_USER})
+  Token:    $TOKEN_DESCRIPTION
   Unit:     $SERVICE_FILE
   Logs:     journalctl -u ${SERVICE_NAME} -f
 

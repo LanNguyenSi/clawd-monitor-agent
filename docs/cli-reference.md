@@ -53,7 +53,8 @@ host, not to the agent host.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--server` | none | clawd-monitor URL (required). The agent strips trailing slashes and appends `/api/agents/ws`. |
-| `--token` | none | Agent token from Settings (required) |
+| `--token-file` | none | File holding the agent token (see [Agent token](#agent-token)). Recommended |
+| `--token` | none | Agent token from Settings. Deprecated: the value is visible in the process list; the agent prints a warning on stderr |
 | `--name` | OS hostname, or `unknown` | Display name in dashboard (uses `os.hostname()`; falls back to the literal string `unknown` if that call throws) |
 | `--gateway` | `http://localhost:18789` | OpenClaw gateway URL |
 | `--gateway-token` | none | OpenClaw gateway auth token. Enables the Gateway WebSocket collectors for sessions and cron. This value is also sent to the dashboard server in the `auth` message; prefer the `OPENCLAW_GATEWAY_TOKEN` environment variable, which is not forwarded |
@@ -67,6 +68,30 @@ host, not to the agent host.
 | `--help`, `-h` | none | Show usage and exit |
 
 `--clawd-dir` only governs where memory files (`MEMORY.md`, `CURRENT.md`, daily logs) are read from. Sessions and cron jobs do not use it: they come from the sources listed under [OpenClaw data sources](#openclaw-data-sources), and the legacy JSONL fallback always reads `~/.openclaw/agents/main/sessions/` in the home directory of the user the agent runs as.
+
+## Agent token
+
+The agent needs a token from Settings. It takes it from the first of these
+that is set (the token is required; the agent exits with code 1 if none is):
+
+1. `--token-file <path>`: the file's content with surrounding whitespace removed. The
+   agent checks the mode of the opened file: any access for "other" users
+   (for example 0644) is refused with exit code 1 and a `chmod 600` hint, access
+   for the group only (for example 0640) is accepted with a warning. An
+   unreadable, non-regular or empty file is an error; the agent does not
+   fall through to the sources below.
+2. The `CLAWD_AGENT_TOKEN` environment variable. An empty or blank value
+   counts as unset. The agent removes the variable from its own environment
+   after reading it, so the `docker` and `openclaw` processes it starts do
+   not inherit it.
+3. `--token <value>`, deprecated. The value is visible in `ps` and in
+   `/proc/<pid>/cmdline` for as long as the agent runs. An empty value
+   counts as unset. The warning is printed whenever the flag is given, even
+   when a higher source wins.
+4. `token` in the `--config` file.
+
+`install.sh` writes the token to `/etc/clawd-monitor-agent/token` (mode
+0600, owned by the service user) and starts the agent with `--token-file`.
 
 ## Config file
 
@@ -126,4 +151,4 @@ installer's unit](systemd-service.md#adjusting-the-installers-unit).
 
 ## Installer flags
 
-`install.sh --help` prints the installer's own option list. It accepts `--server`, `--token`, `--name`, `--gateway`, `--gateway-token`, `--interval`, and `-h`/`--help`; it has no config-file or collector-toggle flags of its own (those are agent runtime options, set later via the CLI or the config file it writes at `/etc/clawd-monitor-agent/config.json`).
+`install.sh --help` prints the installer's own option list. It accepts `--server`, `--token-file`, `--token` (deprecated), `--name`, `--gateway`, `--gateway-token`, `--interval`, and `-h`/`--help`; it has no config-file or collector-toggle flags of its own (those are agent runtime options, set later via the CLI or the config file it writes at `/etc/clawd-monitor-agent/config.json`). The installer takes the token from `--token-file`, the `CLAWD_AGENT_TOKEN` environment variable or `--token`, in that order (use `sudo --preserve-env=CLAWD_AGENT_TOKEN` to hand the variable through `sudo`); see [Agent token](#agent-token). If the installed agent predates `--token-file`, the installer keeps the token in `config.json` as before.

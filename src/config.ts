@@ -3,6 +3,7 @@ import { join, dirname } from 'path'
 import { homedir, hostname } from 'os'
 import { randomUUID } from 'crypto'
 import type { AgentConfig } from './types.js'
+import { resolveToken, TokenInputError, TOKEN_ENV_VAR } from './token.js'
 
 const AGENT_ID_FILE = join(homedir(), '.clawd-agent-id')
 
@@ -18,6 +19,7 @@ function getOrCreateAgentId(): string {
 interface CliArgs {
   server?: string
   token?: string
+  'token-file'?: string
   name?: string
   gateway?: string
   'gateway-token'?: string
@@ -46,7 +48,7 @@ function parseIntervalMs(source: string, value: unknown): number {
   return Math.max(1000, n)
 }
 
-export function loadConfig(args: CliArgs): AgentConfig {
+export function loadConfig(args: CliArgs, env: NodeJS.ProcessEnv = process.env): AgentConfig {
   let fileConfig: Partial<AgentConfig> = {}
 
   if (args.config) {
@@ -59,14 +61,31 @@ export function loadConfig(args: CliArgs): AgentConfig {
   }
 
   const server = args.server ?? fileConfig.server
-  const token = args.token ?? fileConfig.token
+  let token: string | undefined
+  try {
+    token = resolveToken({
+      tokenFile: args['token-file'],
+      tokenFlag: args.token,
+      configToken: fileConfig.token,
+      env,
+    })
+  } catch (err) {
+    if (err instanceof TokenInputError) {
+      console.error(`Error: ${err.message}`)
+      process.exit(1)
+    }
+    throw err
+  }
+  // The collectors start child processes (docker, openclaw) that inherit the
+  // environment; the token has no business there once it is read.
+  if (env === process.env) delete env[TOKEN_ENV_VAR]
 
   if (!server) {
     console.error('Error: --server <url> is required')
     process.exit(1)
   }
   if (!token) {
-    console.error('Error: --token <token> is required')
+    console.error(`Error: an agent token is required: use --token-file <path>, the ${TOKEN_ENV_VAR} environment variable, or "token" in the --config file`)
     process.exit(1)
   }
 
