@@ -541,9 +541,10 @@ PrivateTmp=true
 WantedBy=multi-user.target
 UNIT
   chmod 0644 "$unit_tmp"
-  # A failed mv ends the run through the ERR trap, which skips the RETURN trap
-  # above, so remove the temporary file here.
-  mv -fT "$unit_tmp" "$SERVICE_FILE" || { rm -f "$unit_tmp"; return 1; }
+  # `|| return 1`: a bare failing mv would end the run at once and skip the
+  # RETURN trap above, leaving the temporary file behind; returning lets the
+  # trap remove it, and the ERR trap still reports the failure.
+  mv -fT "$unit_tmp" "$SERVICE_FILE" || return 1
 }
 
 # Order matters: a failure between two of these steps must leave a host that

@@ -808,6 +808,21 @@ exec /bin/mv "$@"
         expect(readFileSync(sandbox.serviceFile, 'utf-8')).toContain(`--gateway-token-file ${gatewayTokenFile()}`)
         expect(config().gateway.token).toBe('gw-old')
       })
+      it('does not touch the unit when the gateway token file cannot be put in place (the unit must never name a file that is missing)', () => {
+        writeStub(sandbox, 'mv', {
+          extraScript: `
+for last in "$@"; do :; done
+case "$last" in */gateway-token) echo "mv: simulated failure" >&2; exit 1 ;; esac
+exec /bin/mv "$@"
+`,
+        })
+        const previous = '[Service]\nExecStart=/usr/bin/previous\n'
+        writeFileSync(sandbox.serviceFile, previous)
+        const r = install(['--gateway-token-file', writeSuppliedGateway('gw-new')])
+        expect(r.status).not.toBe(0)
+        expect(readFileSync(sandbox.serviceFile, 'utf-8')).toBe(previous)
+        expect(existsSync(gatewayTokenFile())).toBe(false)
+      })
       it('keeps the gateway token file of the earlier run until the end (no gateway token this time)', () => {
         writeStub(sandbox, 'mv', {
           extraScript: `
