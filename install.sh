@@ -435,12 +435,15 @@ write_config() {
     printf '}\n'
   } > "$tmpfile"
 
-  mv -fT "$tmpfile" "$CONFIG_FILE"
+  # `|| return 1`: a bare failing mv would end the run at once and skip the
+  # RETURN trap above, leaving the temporary file (with the tokens in it) behind.
+  mv -fT "$tmpfile" "$CONFIG_FILE" || return 1
 }
 
 # The token lives in its own file, mode 0600 and owned by the service user,
 # and the unit points the agent at it with --token-file. config.json then holds
-# no secret except an optional gateway token.
+# no token; the gateway token has a file of its own as well (below). Only an
+# agent that predates the matching flag keeps its token in config.json.
 write_token_file() {
   if [ "$TOKEN_LAYOUT" != "file" ]; then
     # A file left by an earlier install must not outlive a fallback to the
@@ -459,7 +462,7 @@ write_token_file() {
     chown "${SERVICE_USER}:${SERVICE_USER}" "$tmpfile"
   fi
   printf '%s\n' "$AGENT_TOKEN" > "$tmpfile"
-  mv -fT "$tmpfile" "$TOKEN_FILE"
+  mv -fT "$tmpfile" "$TOKEN_FILE" || return 1
 }
 
 # The gateway token gets a file of its own as well (mode 0600, owned by the
@@ -477,7 +480,7 @@ write_gateway_token_file() {
     chown "${SERVICE_USER}:${SERVICE_USER}" "$tmpfile"
   fi
   printf '%s\n' "$GATEWAY_TOKEN" > "$tmpfile"
-  mv -fT "$tmpfile" "$GATEWAY_TOKEN_FILE"
+  mv -fT "$tmpfile" "$GATEWAY_TOKEN_FILE" || return 1
 }
 
 # A gateway token file left by an earlier install must not outlive a run that
@@ -561,6 +564,9 @@ if [ "$TOKEN_LAYOUT" = "file" ]; then
   write_unit
   write_config
 else
+  # An agent that has --gateway-token-file but not --token-file does not exist
+  # in a release; the call stays so such a combination cannot lose the gateway
+  # token (it is covered by a test with a stubbed agent).
   write_gateway_token_file
   write_config
   write_unit

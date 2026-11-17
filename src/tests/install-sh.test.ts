@@ -183,6 +183,12 @@ function readStubLog(sandbox: Sandbox): string[] {
   return readFileSync(sandbox.stubLog, 'utf-8').trim().split('\n').filter(Boolean)
 }
 
+/** Temporary files the installer creates next to the config: mktemp suffix of six characters. */
+function tempLeftovers(sandbox: Sandbox): string[] {
+  if (!existsSync(sandbox.configDir)) return []
+  return readdirSync(sandbox.configDir).filter((n) => /^(token|gateway-token|config\.json)\.[A-Za-z0-9]{6}$/.test(n))
+}
+
 describe('install.sh', () => {
   let sandbox: Sandbox
 
@@ -462,6 +468,22 @@ describe('install.sh', () => {
       expect(r.stderr).toContain('is empty')
       expect(existsSync(sandbox.tokenFile)).toBe(false)
     })
+    it('a whitespace-only token file is an error, like an empty one', () => {
+      const r = runInstall(sandbox, [...SERVER, '--token-file', writeTokenFile('  \t \r\n')], { [ENV]: 'from-env' })
+      expect(r.status).toBe(1)
+      expect(r.stderr).toContain('is empty')
+      expect(existsSync(sandbox.tokenFile)).toBe(false)
+    })
+    it('trims the token from a token file (spaces, tab, CR) and stores it with a single newline', () => {
+      const r = runInstall(sandbox, [...SERVER, '--token-file', writeTokenFile('  tok \r\n')])
+      expect(r.status, r.stderr).toBe(0)
+      expect(readFileSync(sandbox.tokenFile, 'utf-8')).toBe('tok\n')
+    })
+    it('takes only the first line of a token file', () => {
+      const r = runInstall(sandbox, [...SERVER, '--token-file', writeTokenFile('first\nsecond\n')])
+      expect(r.status, r.stderr).toBe(0)
+      expect(readFileSync(sandbox.tokenFile, 'utf-8')).toBe('first\n')
+    })
     it('a missing token file is an error and does not fall through', () => {
       const r = runInstall(sandbox, [...SERVER, '--token-file', join(sandbox.dir, 'nope')], { [ENV]: 'from-env' })
       expect(r.status).toBe(1)
@@ -691,6 +713,23 @@ exec /bin/mv "$@"
       expect(existsSync(gatewayTokenFile())).toBe(false)
       expect(existsSync(sandbox.configFile)).toBe(false)
     })
+    it('a whitespace-only gateway token file is an error, like an empty one', () => {
+      const r = install(['--gateway-token-file', writeSuppliedGateway('  \t \r\n')])
+      expect(r.status).toBe(1)
+      expect(r.stderr).toContain('--gateway-token-file')
+      expect(r.stderr).toContain('is empty')
+      expect(existsSync(gatewayTokenFile())).toBe(false)
+    })
+    it('trims the gateway token from its file (spaces, tab, CR) and stores it with a single newline', () => {
+      const r = install(['--gateway-token-file', writeSuppliedGateway('  gw \r\n')])
+      expect(r.status, r.stderr).toBe(0)
+      expect(stored()).toBe('gw\n')
+    })
+    it('takes only the first line of a gateway token file', () => {
+      const r = install(['--gateway-token-file', writeSuppliedGateway('first\nsecond\n')])
+      expect(r.status, r.stderr).toBe(0)
+      expect(stored()).toBe('first\n')
+    })
     it('a missing gateway token file is an error and does not fall through to --gateway-token', () => {
       const r = install(['--gateway-token-file', join(sandbox.dir, 'nope'), '--gateway-token', 'gw-from-flag'])
       expect(r.status).toBe(1)
@@ -767,6 +806,7 @@ exec /bin/mv "$@"
         const r = install(['--gateway-token-file', writeSuppliedGateway('gw-legacy')])
         expect(r.status, r.stderr).toBe(0)
         expect(r.stderr).toContain('does not support --gateway-token-file yet')
+        expect(r.stdout).toContain('Gateway token: inside the config file')
         expect(config().gateway.token).toBe('gw-legacy')
         expect(existsSync(gatewayTokenFile())).toBe(false)
         const unit = readFileSync(sandbox.serviceFile, 'utf-8')
@@ -787,6 +827,17 @@ exec /bin/mv "$@"
         install(['--gateway-token', 'gw-legacy'])
         expect(existsSync(gatewayTokenFile())).toBe(false)
       })
+    })
+
+    // Not a released combination, but it must not lose the gateway token.
+    it('an agent that has --gateway-token-file but not --token-file still gets its gateway token file', () => {
+      writeStub(sandbox, 'clawd-monitor-agent', { stdout: 'Options:\n  --token <token>  agent token\n  --gateway-token-file <path>  gateway token file\n' })
+      const r = install(['--gateway-token-file', writeSuppliedGateway('gw-odd')])
+      expect(r.status, r.stderr).toBe(0)
+      expect(stored()).toBe('gw-odd\n')
+      expect(readFileSync(sandbox.serviceFile, 'utf-8')).toContain(`--gateway-token-file ${gatewayTokenFile()}`)
+      expect(config().gateway.token).toBeUndefined()
+      expect(config().token).toBe('agent-token')
     })
 
     // Order: the file exists before the unit that reads it; a failure at the
@@ -822,6 +873,34 @@ exec /bin/mv "$@"
         expect(r.status).not.toBe(0)
         expect(readFileSync(sandbox.serviceFile, 'utf-8')).toBe(previous)
         expect(existsSync(gatewayTokenFile())).toBe(false)
+        expect(tempLeftovers(sandbox)).toEqual([])
+      })
+      it('does not touch the unit when the agent token file cannot be put in place, and leaves no temporary file holding a token', () => {
+        writeStub(sandbox, 'mv', {
+          extraScript: `
+for last in "$@"; do :; done
+case "$last" in */token) echo "mv: simulated failure" >&2; exit 1 ;; esac
+exec /bin/mv "$@"
+`,
+        })
+        const previous = '[Service]\nExecStart=/usr/bin/previous\n'
+        writeFileSync(sandbox.serviceFile, previous)
+        const r = install(['--gateway-token-file', writeSuppliedGateway('gw-new')])
+        expect(r.status).not.toBe(0)
+        expect(readFileSync(sandbox.serviceFile, 'utf-8')).toBe(previous)
+        expect(tempLeftovers(sandbox)).toEqual([])
+      })
+      it('leaves no temporary file holding a token when config.json cannot be replaced', () => {
+        writeStub(sandbox, 'mv', {
+          extraScript: `
+for last in "$@"; do :; done
+case "$last" in */config.json) echo "mv: simulated failure" >&2; exit 1 ;; esac
+exec /bin/mv "$@"
+`,
+        })
+        const r = install(['--gateway-token-file', writeSuppliedGateway('gw-new')])
+        expect(r.status).not.toBe(0)
+        expect(tempLeftovers(sandbox)).toEqual([])
       })
       it('keeps the gateway token file of the earlier run until the end (no gateway token this time)', () => {
         writeStub(sandbox, 'mv', {
@@ -842,16 +921,20 @@ exec /bin/mv "$@"
 
     // Small robustness fixes in the same code.
     describe('replacing files in place', () => {
-      it('writes into a token path that is a symlink to a directory by replacing the link, not by moving into the directory', () => {
+      it('writes into a token path that is a symlink to a directory by replacing the link, not by moving into the directory (all four files)', () => {
         mkdirSync(sandbox.configDir, { recursive: true })
         const elsewhere = join(sandbox.dir, 'elsewhere')
         mkdirSync(elsewhere)
         symlinkSync(elsewhere, sandbox.tokenFile)
         symlinkSync(elsewhere, gatewayTokenFile())
+        symlinkSync(elsewhere, sandbox.configFile)
+        symlinkSync(elsewhere, sandbox.serviceFile)
         const r = install(['--gateway-token-file', writeSuppliedGateway('gw-linked')])
         expect(r.status, r.stderr).toBe(0)
         expect(lstatSync(sandbox.tokenFile).isFile()).toBe(true)
         expect(lstatSync(gatewayTokenFile()).isFile()).toBe(true)
+        expect(lstatSync(sandbox.configFile).isFile()).toBe(true)
+        expect(lstatSync(sandbox.serviceFile).isFile()).toBe(true)
         expect(readdirSync(elsewhere)).toEqual([])
       })
       it('keeps the previous unit when moving the new one into place fails, and leaves no temporary file', () => {
@@ -873,6 +956,51 @@ exec /bin/mv "$@"
         install()
         expect(statSync(sandbox.serviceFile).mode & 0o777).toBe(0o644)
       })
+    })
+  })
+
+  // Ownership of the files that hold secrets. The other cases run with
+  // CLAWD_INSTALL_SKIP_USER_CREATE=1, which skips chown too; here the user
+  // step runs against the stubs (id says the user exists, install drops -o/-g)
+  // and a chown stub records what the installer asked for, without needing root.
+  describe.skipIf(process.platform !== 'linux')('file ownership', () => {
+    const chownLines = () => readStubLog(sandbox).filter((l) => l.startsWith('chown\t'))
+    function runWithUser(args: string[]) {
+      writeStub(sandbox, 'chown')
+      const gw = join(sandbox.dir, 'supplied-gateway-token')
+      writeFileSync(gw, 'gw-owned\n')
+      return runInstall(sandbox, ['--server', 'wss://x', '--gateway-token-file', gw, ...args], {
+        CLAWD_INSTALL_SKIP_USER_CREATE: '0',
+        CLAWD_AGENT_TOKEN: 'agent-owned',
+      })
+    }
+
+    it('chowns the agent token file and the gateway token file to the service user, and config.json to root:service user', () => {
+      const r = runWithUser([])
+      expect(r.status, r.stderr).toBe(0)
+      const lines = chownLines()
+      expect(lines.filter((l) => /^chown\tclawd-agent:clawd-agent .*\/token\.[A-Za-z0-9]{6}$/.test(l))).toHaveLength(1)
+      expect(lines.filter((l) => /^chown\tclawd-agent:clawd-agent .*\/gateway-token\.[A-Za-z0-9]{6}$/.test(l))).toHaveLength(1)
+      expect(lines.filter((l) => /^chown\troot:clawd-agent .*\/config\.json\.[A-Za-z0-9]{6}$/.test(l))).toHaveLength(1)
+      expect(lines).toHaveLength(3)
+    })
+    it('uses the configured service user', () => {
+      const r = runWithUser([])
+      expect(r.status, r.stderr).toBe(0)
+      expect(chownLines().every((l) => l.includes('clawd-agent'))).toBe(true)
+    })
+    it('does not chown anything in test mode (user creation skipped)', () => {
+      writeStub(sandbox, 'chown')
+      const r = runInstall(sandbox, ['--server', 'wss://x'], { CLAWD_AGENT_TOKEN: 'agent-owned' })
+      expect(r.status, r.stderr).toBe(0)
+      expect(chownLines()).toEqual([])
+    })
+    it('writes the files with their final modes while chowning (0600, 0600, 0640)', () => {
+      const r = runWithUser([])
+      expect(r.status, r.stderr).toBe(0)
+      expect(statSync(sandbox.tokenFile).mode & 0o777).toBe(0o600)
+      expect(statSync(join(sandbox.configDir, 'gateway-token')).mode & 0o777).toBe(0o600)
+      expect(statSync(sandbox.configFile).mode & 0o777).toBe(0o640)
     })
   })
 
