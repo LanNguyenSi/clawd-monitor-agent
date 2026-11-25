@@ -168,6 +168,53 @@ describe('parseArgs', () => {
     expect(result['gateway-token-file']).toBe('-tok')
   })
 
+  // -------------------------------------------------------------------------
+  // --token-file=<value> / --gateway-token-file=<value> (equals form)
+  // -------------------------------------------------------------------------
+  it('parses --token-file=<path> exactly like the space form', () => {
+    process.argv = ['node', 'cli', '--server', 'http://s', '--token-file', '/etc/cma/token']
+    const spaceForm = parseArgs()
+    process.argv = ['node', 'cli', '--server', 'http://s', '--token-file=/etc/cma/token']
+    expect(parseArgs()).toEqual(spaceForm)
+  })
+
+  it('parses --gateway-token-file=<path> exactly like the space form', () => {
+    process.argv = ['node', 'cli', '--gateway-token-file', '/etc/cma/gateway-token']
+    const spaceForm = parseArgs()
+    process.argv = ['node', 'cli', '--gateway-token-file=/etc/cma/gateway-token']
+    expect(parseArgs()).toEqual(spaceForm)
+  })
+
+  it('keeps "=" characters in an --token-file=<path> value', () => {
+    process.argv = ['node', 'cli', '--token-file=/etc/cma/token=x=y']
+    expect(parseArgs()['token-file']).toBe('/etc/cma/token=x=y')
+  })
+
+  it('keeps "=" characters in an --gateway-token-file=<path> value', () => {
+    process.argv = ['node', 'cli', '--gateway-token-file=/etc/cma/gateway=token=2']
+    expect(parseArgs()['gateway-token-file']).toBe('/etc/cma/gateway=token=2')
+  })
+
+  const expectEmptyEqualsExit = (flag: string) => {
+    process.argv = ['node', 'cli', '--server', 'http://s', `${flag}=`]
+    const errors: string[] = []
+    const err = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { errors.push(a.join(' ')) })
+    try {
+      expect(() => parseArgs()).toThrow('exit:1')
+    } finally {
+      err.mockRestore()
+    }
+    expect(errors.join('\n')).toContain(`Error: ${flag} needs a path`)
+  }
+
+  it('exits 1 for --token-file= with an empty value', () => {
+    expectEmptyEqualsExit('--token-file')
+  })
+
+  it('exits 1 for --gateway-token-file= with an empty value', () => {
+    expectEmptyEqualsExit('--gateway-token-file')
+  })
+
   it('--help lists --gateway-token-file, marks --gateway-token deprecated and states the Gateway token precedence', () => {
     const lines: string[] = []
     const log = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { lines.push(a.join(' ')) })
