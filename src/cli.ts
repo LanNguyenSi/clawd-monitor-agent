@@ -49,14 +49,24 @@ export function parseArgs(): Record<string, string | boolean> {
     if (arg === '--no-docker') { result.docker = false; continue }
     if (arg === '--debug') { result.debug = true; continue }
 
-    if (arg === '--token-file' || arg === '--gateway-token-file') {
-      const hasValue = i + 1 < args.length && !args[i + 1].startsWith('--')
-      const value = hasValue ? args[++i] : ''
-      if (!hasValue || value === '') {
-        console.error(`Error: ${arg} needs a path`)
+    // --token-file and --gateway-token-file accept both the space form and the
+    // equals form (--token-file=/path). The equals form splits at the first
+    // '=', so the path may itself contain '='.
+    const eq = arg.indexOf('=')
+    const flagName = eq === -1 ? arg : arg.slice(0, eq)
+    if (flagName === '--token-file' || flagName === '--gateway-token-file') {
+      let value: string
+      if (eq === -1) {
+        const hasValue = i + 1 < args.length && !args[i + 1].startsWith('--')
+        value = hasValue ? args[++i] : ''
+      } else {
+        value = arg.slice(eq + 1)
+      }
+      if (value === '') {
+        console.error(`Error: ${flagName} needs a path`)
         process.exit(1)
       }
-      result[arg.slice(2)] = value
+      result[flagName.slice(2)] = value
       continue
     }
 

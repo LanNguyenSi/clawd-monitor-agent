@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `--token-file=/path` and `--gateway-token-file=/path` now parse exactly like the space-separated form. The equals form used to fall through to the generic argument handling: the value was stored under a key no token source reads (or dropped when the flag was the last argument), so the agent silently used the next token source (environment variable, deprecated flag or config file). The path may itself contain `=`. An empty value (`--token-file=` or `--gateway-token-file=`) is refused with `<flag> needs a path` on stderr and exit code 1, like the space form.
+
 ## [0.4.0] - 2026-11-17
 
 ### Security
